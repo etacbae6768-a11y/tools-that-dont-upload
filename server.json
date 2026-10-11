@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.etacbae6768-a11y/tools-that-dont-upload",
+  "title": "Tools That Don't Upload",
+  "description": "442 free API tools. Zero retention. No auth. CORS enabled.",
+  "repository": {
+    "url": "https://github.com/etacbae6768-a11y/tools-that-dont-upload",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://toolsthatdontupload.com/mcp"
+    }
+  ]
+}
