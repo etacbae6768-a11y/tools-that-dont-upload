@@ -26,3 +26,7 @@ MIT License
 
 
 
+
+
+Listed in the [Claude Market MCP directory](https://www.claudemarket.ai/mcp)
+
