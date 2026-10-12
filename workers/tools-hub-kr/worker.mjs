@@ -47,9 +47,10 @@ const XR_DATE_IDS=new Set([14,15,16,17,18,19,20,21,22,45,46,47]);
 function xrIsDateFmt(code){if(!code)return false;const c=code.replace(/"[^"]*"/g,'').replace(/\[[^\]]*\]/g,'').replace(/\\./g,'');return /[dmyhs]/i.test(c)&&!/^[#0.,%E+-]*$/i.test(c);}
 function xrSerialToISO(v,d1904){const ms=Math.round((v-(d1904?-1462:0)-25569)*86400000);const d=new Date(ms);if(isNaN(d))return null;const iso=d.toISOString();return (v%1===0)?iso.slice(0,10):iso.slice(0,19);}
 async function xlsxRead(b){
- if(typeof b.file_base64!=='string'||!b.file_base64)throw new Error('file_base64 is required (the .xlsx file, base64-encoded).');
+ if(typeof b.file_base64!=='string'||!b.file_base64)throw new Error('file_base64 is required (the .xlsx or .xls file, base64-encoded).');
  const u=xrB64(b.file_base64);if(u.length>10*1024*1024)throw new Error('File too large (max 10 MB).');
- const z=await xrUnzip(u);const wb=await z.read('xl/workbook.xml');if(!wb)throw new Error('Not an XLSX workbook (xl/workbook.xml missing). Old .xls files are not supported.');
+ if(u[0]===0xD0&&u[1]===0xCF&&u[2]===0x11&&u[3]===0xE0)return xlsRead(u,b);
+ const z=await xrUnzip(u);const wb=await z.read('xl/workbook.xml');if(!wb)throw new Error('Not an Excel workbook (xl/workbook.xml missing).');
  const d1904=/date1904="(1|true)"/.test(wb);const rels=(await z.read('xl/_rels/workbook.xml.rels'))||'';const relMap={};for(const m of rels.matchAll(/<Relationship\b[^>]*>/g)){const id=xrAttr(m[0],'Id'),t=xrAttr(m[0],'Target');if(id&&t)relMap[id]=t.replace(/^\/?xl\//,'').replace(/^\//,'');}
  const sheets=[...wb.matchAll(/<(?:\w+:)?sheet\b[^>]*>/g)].map(m=>({name:xrAttr(m[0],'name'),rid:xrAttr(m[0],'r:id'),state:xrAttr(m[0],'state')||'visible'}));
  const ssXml=(await z.read('xl/sharedStrings.xml'))||'';const ss=[...ssXml.matchAll(/<(?:\w+:)?si\b[^>]*>([\s\S]*?)<\/(?:\w+:)?si>/g)].map(m=>xrTexts(m[1]));
@@ -69,10 +70,82 @@ async function xlsxRead(b){
   const dense=rows.map(r=>{const a=new Array(maxC).fill(null);r.forEach((v,i)=>{if(v!==undefined)a[i]=v;});return a;});
   while(dense.length&&dense[dense.length-1].every(v=>v===null))dense.pop();
   const res={name:s.name,state:s.state,rowCount:dense.length,colCount:maxC,truncated};
-  if(b.header){const hdr=(dense[0]||[]).map((h,i)=>h===null||h===''?'col'+(i+1):String(h));res.headers=hdr;res.records=dense.slice(1).filter(r=>r.some(v=>v!==null)).map(r=>{const o={};hdr.forEach((h,i)=>o[h]=r[i]??null);return o;});}
+  if(b.header){const hr=typeof b.header==='number'&&b.header>=1?b.header-1:0;const hdr=(dense[hr]||[]).map((h,i)=>h===null||h===''?'col'+(i+1):String(h).trim());res.headers=hdr;res.records=dense.slice(hr+1).filter(r=>r.some(v=>v!==null&&v!=='')).map(r=>{const o={};hdr.forEach((h,i)=>o[h]=r[i]??null);return o;});}
   else res.rows=dense;
   out.push(res);}
  return {sheets:out,sheetNames:sheets.map(x=>x.name),date1904:d1904,note:'Formulas are returned as their last saved values. Merged cells keep the value in the top-left cell only.'};}
+
+
+function md5(bytes){const K=new Uint32Array(64),S=[7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
+ for(let i=0;i<64;i++)K[i]=Math.floor(Math.abs(Math.sin(i+1))*4294967296)>>>0;
+ const len=bytes.length,nb=((len+8)>>>6)+1,M=new Uint32Array(nb*16);for(let i=0;i<len;i++)M[i>>2]|=bytes[i]<<((i%4)*8);M[len>>2]|=0x80<<((len%4)*8);M[nb*16-2]=(len*8)>>>0;M[nb*16-1]=Math.floor(len/536870912)>>>0;
+ let a0=0x67452301,b0=0xefcdab89,c0=0x98badcfe,d0=0x10325476;
+ for(let o=0;o<M.length;o+=16){let A=a0,B=b0,Cc=c0,D=d0;for(let i=0;i<64;i++){let F,g;if(i<16){F=(B&Cc)|(~B&D);g=i;}else if(i<32){F=(D&B)|(~D&Cc);g=(5*i+1)%16;}else if(i<48){F=B^Cc^D;g=(3*i+5)%16;}else{F=Cc^(B|~D);g=(7*i)%16;}
+  F=(F+A+K[i]+M[o+g])>>>0;A=D;D=Cc;Cc=B;B=(B+((F<<S[i])|(F>>>(32-S[i]))))>>>0;}a0=(a0+A)>>>0;b0=(b0+B)>>>0;c0=(c0+Cc)>>>0;d0=(d0+D)>>>0;}
+ const out=new Uint8Array(16);[a0,b0,c0,d0].forEach((v,i)=>{out[i*4]=v&255;out[i*4+1]=(v>>>8)&255;out[i*4+2]=(v>>>16)&255;out[i*4+3]=(v>>>24)&255;});return out;}
+function rc4(key){const s=new Uint8Array(256);for(let i=0;i<256;i++)s[i]=i;let j=0;for(let i=0;i<256;i++){j=(j+s[i]+key[i%key.length])&255;const t=s[i];s[i]=s[j];s[j]=t;}let i=0;j=0;return n=>{const o=new Uint8Array(n);for(let k=0;k<n;k++){i=(i+1)&255;j=(j+s[i])&255;const t=s[i];s[i]=s[j];s[j]=t;o[k]=s[(s[i]+s[j])&255];}return o;};}
+function xlsRc4Key(password,salt){const pw=new Uint8Array(password.length*2);for(let i=0;i<password.length;i++){pw[i*2]=password.charCodeAt(i)&255;pw[i*2+1]=password.charCodeAt(i)>>8;}
+ const h0=md5(pw).subarray(0,5);const buf=new Uint8Array(21*16);for(let i=0;i<16;i++){buf.set(h0,i*21);buf.set(salt,i*21+5);}const h1=md5(buf).subarray(0,5);
+ return block=>{const b=new Uint8Array(9);b.set(h1,0);b[5]=block&255;b[6]=(block>>>8)&255;b[7]=(block>>>16)&255;b[8]=(block>>>24)&255;return md5(b);};}
+function xlsCheckPassword(fp,password){const salt=fp.subarray(6,22),ev=fp.subarray(22,38),evh=fp.subarray(38,54);const keyFor=xlsRc4Key(password,salt);const ks=rc4(keyFor(0))(32);
+ const v=new Uint8Array(16),vh=new Uint8Array(16);for(let i=0;i<16;i++){v[i]=ev[i]^ks[i];vh[i]=evh[i]^ks[16+i];}const h=md5(v);return h.every((x,i)=>x===vh[i])?keyFor:null;}
+
+
+// ---- legacy .xls (BIFF8) reader: CFB container, default-password RC4 decryption, cells/SST/formats. Our own code. ----
+function cfbOpen(u){const dv=new DataView(u.buffer,u.byteOffset,u.byteLength);const r16=o=>dv.getUint16(o,true),r32=o=>dv.getUint32(o,true);
+ if(r32(0)!==0xE011CFD0||r32(4)!==0xE11AB1A1)return null;const ss=1<<r16(30),nFat=r32(44),dirStart=r32(48),cutoff=r32(56),mfStart=r32(60),difStart=r32(68),nDif=r32(72);
+ const so=i=>512+i*ss;const fatSecs=[];for(let i=0;i<109&&fatSecs.length<nFat;i++){const v=r32(76+i*4);if(v<0xFFFFFFFA)fatSecs.push(v);}
+ let d=difStart;for(let k=0;k<nDif&&d<0xFFFFFFFA;k++){for(let i=0;i<ss/4-1&&fatSecs.length<nFat;i++){const v=r32(so(d)+i*4);if(v<0xFFFFFFFA)fatSecs.push(v);}d=r32(so(d)+ss-4);}
+ const fat=[];for(const f of fatSecs)for(let i=0;i<ss/4;i++)fat.push(r32(so(f)+i*4));
+ const readChain=st=>{const parts=[];let c=st,g=0;while(c<0xFFFFFFFA&&g++<1e6){parts.push(u.subarray(so(c),so(c)+ss));c=fat[c];}const out=new Uint8Array(parts.length*ss);parts.forEach((p,i)=>out.set(p,i*ss));return out;};
+ const dir=readChain(dirStart);const ents=[];const u16=a=>{let s='';for(let k=0;k+1<a.length;k+=2)s+=String.fromCharCode(a[k]|(a[k+1]<<8));return s;};for(let i=0;i<dir.length/128;i++){const e=dir.subarray(i*128,i*128+128);const nl=e[64]|(e[65]<<8);if(!nl)continue;const edv=new DataView(e.buffer,e.byteOffset,128);ents.push({name:u16(e.subarray(0,nl-2)),type:e[66],start:edv.getUint32(116,true),size:edv.getUint32(120,true)});}
+ const root=ents.find(e=>e.type===5);const mini=root?readChain(root.start):new Uint8Array(0);const mfat=[];if(mfStart<0xFFFFFFFA){const m=readChain(mfStart);const mdv=new DataView(m.buffer,m.byteOffset,m.byteLength);for(let i=0;i<m.length/4;i++)mfat.push(mdv.getUint32(i*4,true));}
+ const read=name=>{const e=ents.find(x=>x.name===name);if(!e)return null;if(e.size>=cutoff)return readChain(e.start).subarray(0,e.size);const out=new Uint8Array(Math.ceil(e.size/64)*64);let c=e.start,k=0,g=0;while(c<0xFFFFFFFA&&g++<1e6){out.set(mini.subarray(c*64,c*64+64),k*64);k++;c=mfat[c];}return out.subarray(0,e.size);};
+ return {names:ents.map(e=>e.name),read};}
+const XLS_NOENC=new Set([0x809,0x2F,0x194,0x195,0xE1,0x196,0x138]);
+function xlsDecrypt(w,keyFor){const out=new Uint8Array(w);let pos=0,seen=false;const ksAt=(p,n)=>{const res=new Uint8Array(n);let k=0;while(k<n){const blk=Math.floor((p+k)/1024),inb=(p+k)%1024,take=Math.min(n-k,1024-inb);const g=rc4(keyFor(blk));g(inb);res.set(g(take),k);k+=take;}return res;};
+ while(pos+4<=w.length){const t=w[pos]|(w[pos+1]<<8),l=w[pos+2]|(w[pos+3]<<8);if(seen&&!XLS_NOENC.has(t)&&l>0){const ks=ksAt(pos+4,l);const skip=t===0x85?4:0;for(let i=skip;i<l;i++)out[pos+4+i]=w[pos+4+i]^ks[i];}if(t===0x2F)seen=true;pos+=4+l;}return out;}
+function xlsRecords(w){const recs=[];let pos=0;while(pos+4<=w.length){const t=w[pos]|(w[pos+1]<<8),l=w[pos+2]|(w[pos+3]<<8);recs.push({t,off:pos,data:w.subarray(pos+4,pos+4+l)});pos+=4+l;}return recs;}
+function xlsStr(d,o,cch,high){if(high){let s='';for(let i=0;i<cch;i++)s+=String.fromCharCode(d[o+i*2]|(d[o+i*2+1]<<8));return [s,o+cch*2];}let s='';for(let i=0;i<cch;i++)s+=String.fromCharCode(d[o+i]);return [s,o+cch];}
+function xlsSST(recs,i){const bufs=[recs[i].data];const bounds=[];let j=i+1;while(j<recs.length&&recs[j].t===0x3C){bounds.push(bufs.reduce((a,b)=>a+b.length,0));bufs.push(recs[j].data);j++;}
+ const total=bufs.reduce((a,b)=>a+b.length,0);const d=new Uint8Array(total);let k=0;for(const b of bufs){d.set(b,k);k+=b.length;}const isB=new Set(bounds);
+ const dv=new DataView(d.buffer,d.byteOffset,d.byteLength);const n=dv.getUint32(4,true);let o=8;const out=[];
+ for(let s=0;s<n&&o<d.length;s++){const cch=dv.getUint16(o,true);let fl=d[o+2];o+=3;let runs=0,ext=0;if(fl&8){runs=dv.getUint16(o,true);o+=2;}if(fl&4){ext=dv.getUint32(o,true);o+=4;}
+  let str='';let left=cch;let high=fl&1;while(left>0){let nextB=Infinity;for(const b of bounds)if(b>o){nextB=b;break;}const room=high?Math.floor((nextB-o)/2):nextB-o;const take=Math.min(left,room);const r=xlsStr(d,o,take,high);str+=r[0];o=r[1];left-=take;if(left>0&&isB.has(o)){high=d[o]&1;o+=1;}}
+  o+=runs*4+ext;out.push(str);}return out;}
+function xlsRK(v){let n;if(v&2)n=v>>2;else{const b=new DataView(new ArrayBuffer(8));b.setUint32(4,v&0xFFFFFFFC,true);b.setUint32(0,0,true);n=b.getFloat64(0,true);}return v&1?n/100:n;}
+function xlsRead(u,b){const cf=cfbOpen(u);if(!cf)throw new Error('Not an .xls file.');let w=cf.read('Workbook')||cf.read('Book');if(!w)throw new Error('No Workbook stream found (not an Excel 97-2003 file).');
+ let recs=xlsRecords(w);const fpR=recs.find(r=>r.t===0x2F);let decrypted=false;
+ if(fpR){const fp=fpR.data;if((fp[0]|(fp[1]<<8))!==1||(fp[2]|(fp[3]<<8))!==1)throw new Error('This .xls uses an encryption type that is not supported. Save it as .xlsx without a password.');
+  const pw=typeof b.password==='string'&&b.password?b.password:'VelvetSweatshop';const keyFor=xlsCheckPassword(fp,pw);if(!keyFor)throw new Error('This .xls file is password-protected. Send the password in "password".');w=xlsDecrypt(w,keyFor);recs=xlsRecords(w);decrypted=true;}
+ const bof=recs[0];if(!bof||bof.t!==0x809||(bof.data[0]|(bof.data[1]<<8))!==0x600)throw new Error('Only Excel 97-2003 (BIFF8) .xls files are supported.');
+ let sst=[],d1904=false;const sheets=[];const fmts={};const xf=[];
+ for(let i=0;i<recs.length;i++){const r=recs[i],d=r.data;if(r.t===0x0A&&sheets.length)break;
+  if(r.t===0x85){const pos=d[0]|(d[1]<<8)|(d[2]<<16)|(d[3]<<24);const cch=d[6],hi=d[7]&1;sheets.push({name:xlsStr(d,8,cch,hi)[0],pos:pos>>>0,state:['visible','hidden','veryHidden'][d[4]&3]||'visible',type:d[5]});}
+  else if(r.t===0xFC)sst=xlsSST(recs,i);else if(r.t===0x22)d1904=(d[0]|(d[1]<<8))===1;
+  else if(r.t===0x41E){const id=d[0]|(d[1]<<8);const cch=d[2]|(d[3]<<8);fmts[id]=xlsStr(d,5,cch,d[4]&1)[0];}
+  else if(r.t===0xE0){xf.push(d[2]|(d[3]<<8));}}
+ const isDate=ix=>{const f=xf[ix];if(f===undefined)return false;return XR_DATE_IDS.has(f)||xrIsDateFmt(fmts[f]);};
+ let want=sheets.filter(s=>s.type===0);if(b.sheet!==undefined&&b.sheet!==null&&b.sheet!==''){const s=typeof b.sheet==='number'?want[b.sheet]:want.find(x=>x.name===String(b.sheet));if(!s)throw new Error('Sheet not found: '+b.sheet+'. Available: '+want.map(x=>x.name).join(', '));want=[s];}
+ const maxRows=Math.min(Math.max(parseInt(b.max_rows)||5000,1),20000);const out=[];
+ for(const s of want){let i=recs.findIndex(r=>r.off===s.pos);if(i<0){out.push({name:s.name,error:'sheet not found in stream'});continue;}const cells=new Map();let maxR=-1,maxC=-1,pendingStr=null;
+  const put=(row,col,v)=>{if(row>=maxRows)return;cells.set(row*16384+col,v);if(row>maxR)maxR=row;if(col>maxC)maxC=col;};
+  const num=(row,col,ix,v)=>put(row,col,isDate(ix)&&b.dates!=='serial'?(xrSerialToISO(v,d1904)||v):v);
+  for(i=i+1;i<recs.length;i++){const r=recs[i],d=r.data;if(r.t===0x0A)break;const dv=new DataView(d.buffer,d.byteOffset,d.byteLength);
+   if(r.t===0xFD){put(dv.getUint16(0,true),dv.getUint16(2,true),sst[dv.getUint32(6,true)]??'');}
+   else if(r.t===0x203){num(dv.getUint16(0,true),dv.getUint16(2,true),dv.getUint16(4,true),dv.getFloat64(6,true));}
+   else if(r.t===0x27E){num(dv.getUint16(0,true),dv.getUint16(2,true),dv.getUint16(4,true),xlsRK(dv.getInt32(6,true)));}
+   else if(r.t===0xBD){const row=dv.getUint16(0,true),c0=dv.getUint16(2,true),n=(d.length-6)/6;for(let k=0;k<n;k++)num(row,c0+k,dv.getUint16(4+k*6,true),xlsRK(dv.getInt32(6+k*6,true)));}
+   else if(r.t===0x204){const cch=dv.getUint16(6,true);put(dv.getUint16(0,true),dv.getUint16(2,true),xlsStr(d,9,cch,d[8]&1)[0]);}
+   else if(r.t===0x205){const row=dv.getUint16(0,true),col=dv.getUint16(2,true);put(row,col,d[7]?{error:d[6]}:!!d[6]);}
+   else if(r.t===0x06){const row=dv.getUint16(0,true),col=dv.getUint16(2,true),ix=dv.getUint16(4,true);if(d[12]===0xFF&&d[13]===0xFF){const ty=d[6];if(ty===0)pendingStr=[row,col];else if(ty===1)put(row,col,!!d[8]);else if(ty===2)put(row,col,{error:d[8]});}else num(row,col,ix,dv.getFloat64(6,true));}
+   else if(r.t===0x207&&pendingStr){const cch=dv.getUint16(0,true);put(pendingStr[0],pendingStr[1],xlsStr(d,3,cch,d[2]&1)[0]);pendingStr=null;}}
+  const dense=[];for(let rr=0;rr<=maxR;rr++){const row=new Array(maxC+1).fill(null);for(let cc=0;cc<=maxC;cc++){const v=cells.get(rr*16384+cc);if(v!==undefined)row[cc]=v;}dense.push(row);}
+  while(dense.length&&dense[dense.length-1].every(v=>v===null||v===''))dense.pop();
+  const res={name:s.name,state:s.state,rowCount:dense.length,colCount:maxC+1,truncated:maxR>=maxRows-1};
+  if(b.header){let hr=0;if(typeof b.header==='number')hr=b.header-1;const hdr=(dense[hr]||[]).map((h,k)=>h===null||h===''?'col'+(k+1):String(h).trim());res.headers=hdr;res.records=dense.slice(hr+1).filter(r=>r.some(v=>v!==null&&v!=='')).map(r=>{const o={};hdr.forEach((h,k)=>o[h]=r[k]??null);return o;});}else res.rows=dense;
+  out.push(res);}
+ return {format:'xls (BIFF8)',decrypted_with_default_password:decrypted&&!b.password,sheets:out,sheetNames:want.map(x=>x.name),date1904:d1904,note:'Legacy .xls read from the cached cell values. Formulas return their last saved results.'};}
 
 
 // ---- docx-read: self-developed .docx text/structure reader (uses xrUnzip/xrUnesc from xlsx-read) ----
