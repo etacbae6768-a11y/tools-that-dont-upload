@@ -1,6 +1,7 @@
 
 const NET_MAP={"/api/web-fetch":"B13","/api/url-info":"B13","/api/dns-lookup":"EXP","/api/ssl-check":"EXP","/api/http-headers":"EXP","/api/rss-parse":"EXP","/api/meta-extract":"MISS","/api/sitemap-parse":"MISS","/api/link-check":"EXP2","/api/open-graph":"EXP2","/api/http-redirect":"REDIR","/api/whois":"WHOIS","/api/cors-test":"B7B","/api/sri-hash":"B7A","/api/security-headers":"B7A","/api/webhook-test":"B8A","/api/lighthouse-score":"B3","/api/favicon":"B3","/api/tech-detect":"B3","/api/canonical-url":"B3","/api/domain-age":"B3"};
 const AI_MAP={"/api/ai-translate":"AI","/api/ai-summarize":"AI","/api/ai-ocr":"AI"};
+const RENDER_MAP={"/api/html-to-pdf":"RENDER","/api/markdown-to-pdf":"RENDER"};
 const FILE_EPS=new Set(["/api/pdf-merge","/api/pdf-split","/api/pdf-rotate","/api/pdf-watermark","/api/pdf-metadata","/api/pdf-extract"]);
 const COST={net:20,file:60,'/api/ai-translate':50,'/api/ai-summarize':50,'/api/ai-ocr':100};
 const LIMITS={free:1000,dev:100000,business:500000};
@@ -50,16 +51,16 @@ async function lookupKey(env,k){
 export default{async fetch(request,env){
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers:C});
   const url=new URL(request.url);const p=url.pathname;
-  const isNet=!!NET_MAP[p],isAI=!!AI_MAP[p],isFile=FILE_EPS.has(p);
+  const isNet=!!NET_MAP[p],isAI=!!AI_MAP[p],isRender=!!RENDER_MAP[p],isFile=FILE_EPS.has(p)||isRender;
   if(!isNet&&!isAI&&!isFile)return json({type:'about:blank',title:'Not Found',status:404,detail:'This endpoint is not available. It was withdrawn until it passes accuracy tests. See https://toolsthatdontupload.com/openapi.json for the current list.'},404);
   if(request.method!=='POST'&&request.method!=='GET')return json({title:'Method Not Allowed',status:405},405,{Allow:'GET, POST, OPTIONS'});
   const internal=env.INTERNAL_TOKEN&&request.headers.get('x-internal-token')===env.INTERNAL_TOKEN;
   const ip=(internal&&request.headers.get('x-client-ip'))||request.headers.get('cf-connecting-ip')||'unknown';
   const cost=isNet?COST.net:isFile?COST.file:COST[p];
-  if(isFile){const ct=request.headers.get('content-type')||'';if(!ct.includes('multipart/form-data'))return json({title:'Bad Request',status:400,detail:'This endpoint requires a multipart/form-data file upload.'},400);}
+  if(isFile&&!isRender){const ct=request.headers.get('content-type')||'';if(!ct.includes('multipart/form-data'))return json({title:'Bad Request',status:400,detail:'This endpoint requires a multipart/form-data file upload.'},400);}
   // read body once for checks (non-file)
   let bodyText=null,bodyObj={};
-  if(!isFile&&request.method==='POST'){bodyText=await request.text();if(bodyText){try{bodyObj=JSON.parse(bodyText);}catch(e){return json({title:'Bad Request',status:400,detail:'Body must be valid JSON.'},400);}}}
+  if((!isFile||isRender)&&request.method==='POST'){bodyText=await request.text();if(isRender&&bodyText.length>2*1024*1024)return json({title:'Payload Too Large',status:413,detail:'Max 2 MB.'},413);if(bodyText){try{bodyObj=JSON.parse(bodyText);}catch(e){return json({title:'Bad Request',status:400,detail:'Body must be valid JSON.'},400);}}}
   if(!isFile&&request.method==='GET'){url.searchParams.forEach((v,k)=>{bodyObj[k]=v;});}
   if(isNet){const bad=checkTarget(bodyObj||{});if(bad)return json({title:'Bad Request',status:400,detail:'Target rejected: '+bad+'. Only public http(s) hosts on ports 80/443 are allowed.'},400);}
   const apiKey=request.headers.get('x-api-key')||(request.headers.get('authorization')||'').replace(/^Bearer\s+/i,'');
@@ -95,7 +96,7 @@ export default{async fetch(request,env){
   const fwdHeaders=new Headers();
   for(const [k,v] of request.headers){if(!/^(x-api-key|authorization|x-internal-token|x-client-ip)$/i.test(k))fwdHeaders.set(k,v);}
   let resp;
-  const target=NET_MAP[p]||AI_MAP[p];
+  const target=NET_MAP[p]||AI_MAP[p]||RENDER_MAP[p];
   if(target){
     const init={method:request.method,headers:fwdHeaders};
     if(request.method==='POST')init.body=bodyText||'{}';
@@ -109,6 +110,7 @@ export default{async fetch(request,env){
   if(isNet){const t=bodyObj.url||bodyObj.target||bodyObj.feedUrl||bodyObj.domain||bodyObj.host||'';let host='';try{host=new URL(/^https?:/i.test(t)?t:'https://'+t).hostname;}catch(e){}
     const fixed={'/api/dns-lookup':'cloudflare-dns.com','/api/whois':'rdap.org (or rdap.verisign.com)','/api/domain-age':'rdap.org'};egress=fixed[p]?(fixed[p]+(host?'; query='+host:'')):(host||'user-supplied host');}
   else if(isAI)egress='api.cloudflare.com (Workers AI)';
+  else if(isRender)egress='api.cloudflare.com (Browser Run)';
   out.headers.set('X-Egress',egress);out.headers.set('Access-Control-Expose-Headers','X-Credits-Used,X-Credits-Limit,X-Credits-Cost,X-Free-Daily-Limit,X-Free-Daily-Remaining,Retry-After,X-Egress,RateLimit-Limit,RateLimit-Remaining');
   for(const [k,v] of Object.entries({...C,...headersOut}))out.headers.set(k,v);
   return out;

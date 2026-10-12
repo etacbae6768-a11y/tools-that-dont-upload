@@ -77,6 +77,12 @@
       "name": "AI",
       "service": "tools-ai",
       "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "RENDER",
+      "service": "tools-hub-render",
+      "environment": "production"
     }
   ],
   "keep_bindings": [
