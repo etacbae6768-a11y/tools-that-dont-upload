@@ -1,7 +1,7 @@
 
 const NET_MAP={"/api/web-fetch":"B13","/api/url-info":"B13","/api/dns-lookup":"EXP","/api/ssl-check":"EXP","/api/http-headers":"EXP","/api/rss-parse":"EXP","/api/meta-extract":"MISS","/api/sitemap-parse":"MISS","/api/link-check":"EXP2","/api/open-graph":"EXP2","/api/http-redirect":"REDIR","/api/whois":"WHOIS","/api/cors-test":"B7B","/api/sri-hash":"B7A","/api/security-headers":"B7A","/api/webhook-test":"B8A","/api/lighthouse-score":"B3","/api/favicon":"B3","/api/tech-detect":"B3","/api/canonical-url":"B3","/api/domain-age":"B3"};
 const AI_MAP={"/api/ai-translate":"AI","/api/ai-summarize":"AI","/api/ai-ocr":"AI"};
-const RENDER_MAP={"/api/html-to-pdf":"RENDER","/api/markdown-to-pdf":"RENDER"};
+const RENDER_MAP={"/api/html-to-pdf":"RENDER","/api/markdown-to-pdf":"RENDER","/api/pdf-table-extract":"PDFTXT","/api/pdf-text-layout":"PDFTXT"};
 const FILE_EPS=new Set(["/api/pdf-merge","/api/pdf-split","/api/pdf-rotate","/api/pdf-watermark","/api/pdf-metadata","/api/pdf-extract"]);
 const COST={net:20,file:60,'/api/ai-translate':50,'/api/ai-summarize':50,'/api/ai-ocr':100};
 const LIMITS={free:1000,dev:100000,business:500000};
@@ -110,7 +110,7 @@ export default{async fetch(request,env){
   if(isNet){const t=bodyObj.url||bodyObj.target||bodyObj.feedUrl||bodyObj.domain||bodyObj.host||'';let host='';try{host=new URL(/^https?:/i.test(t)?t:'https://'+t).hostname;}catch(e){}
     const fixed={'/api/dns-lookup':'cloudflare-dns.com','/api/whois':'rdap.org (or rdap.verisign.com)','/api/domain-age':'rdap.org'};egress=fixed[p]?(fixed[p]+(host?'; query='+host:'')):(host||'user-supplied host');}
   else if(isAI)egress='api.cloudflare.com (Workers AI)';
-  else if(isRender)egress='api.cloudflare.com (Browser Run)';
+  else if(isRender)egress=RENDER_MAP[p]==='RENDER'?'api.cloudflare.com (Browser Run)':'none';
   out.headers.set('X-Egress',egress);out.headers.set('Access-Control-Expose-Headers','X-Credits-Used,X-Credits-Limit,X-Credits-Cost,X-Free-Daily-Limit,X-Free-Daily-Remaining,Retry-After,X-Egress,RateLimit-Limit,RateLimit-Remaining');
   for(const [k,v] of Object.entries({...C,...headersOut}))out.headers.set(k,v);
   return out;

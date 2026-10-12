@@ -83,6 +83,12 @@
       "name": "RENDER",
       "service": "tools-hub-render",
       "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "PDFTXT",
+      "service": "tools-pdf-text",
+      "environment": "production"
     }
   ],
   "keep_bindings": [
