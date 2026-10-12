@@ -45,7 +45,15 @@ MIT License
 
 ## Repository layout
 
-- `workers/` — source of the production Cloudflare Workers (MCP server, gateway, keys, Korean tools, documents). Deployed only by GitHub Actions (`.github/workflows/deploy.yml`) with build provenance attestations; the live commit is shown at https://toolsthatdontupload.com/mcp and https://toolsthatdontupload.com/transparency/.
+- `workers/` — source of the production Cloudflare Workers that this repo deploys: `tools-mcp-server` (the MCP server at /mcp), `tools-hub-ratelimit` (gateway for network, file and AI tools), `tools-hub-keys`, `tools-hub-kr` (Korean tools), `tools-hub-docs` (Korean documents). Every folder in `workers/` is deployed by GitHub Actions (`.github/workflows/deploy.yml` → `scripts/deploy.mjs`) with build provenance attestations; the live commit is shown at https://toolsthatdontupload.com/mcp and https://toolsthatdontupload.com/transparency/.
+- `tests/` — black-box regression tests that run against a deployed MCP endpoint (`node tests/search-regression.mjs [MCP_URL]`).
 - `plugin/` — Claude plugin (hosted connector + offline local server + 2 skills).
 - `local/` — offline MCP bundle source (`.mcpb`, release `local-v1.0.0`).
 - `server.json` — MCP Registry metadata.
+- `SECURITY.md` — how outbound requests are restricted, known limits, and how to report issues.
+
+## Development notes
+
+- The MCP server code that actually runs is `workers/tools-mcp-server/worker.mjs`. The old root `mcp-server.js` was an outdated copy and was removed on 2026-10-12 (still in git history).
+- Not everything is in this repo: the static site, the ~25 compute-tool Workers and the network-tool Workers are deployed separately. The MCP server reaches them through Cloudflare service bindings.
+- Pushing to `workers/`, `scripts/deploy.mjs` or the workflow file deploys to production. Test changes on a separate workers.dev script first.
