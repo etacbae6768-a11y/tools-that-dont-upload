@@ -17,13 +17,14 @@ Network tools (web fetch, URL info, HTTP headers, SSL, link check, Open Graph, s
 - 2026-10-12: Lemon Squeezy webhook signing secret rotated out of source code into a Worker secret; constant-time signature comparison; duplicate events ignored.
 - 2026-10-12: Legacy `/admin/*` Worker removed (its public usage endpoint returned the email address for any key).
 - 2026-10-12: Leftover test API keys and raw-key records removed from storage.
+- 2026-10-12: `/api/base64` now encodes and decodes UTF-8 (non-Latin text previously failed).
 
-## Prepared and verified on staging, not yet deployed
+## Fixed (in production) — outbound request hardening, 2026-10-12
 
 - **Per-hop redirect validation for all network tools.** Outbound requests use `redirect: 'manual'`; every hop is re-checked with the same rules as the first URL (http/https only, ports 80/443, no credentials, no IP literals or local hostnames), at most 5 redirects, and `Authorization`, `Cookie`, `Proxy-Authorization`, `X-API-Key` and internal headers are removed (and removed again on any cross-origin hop). 303, and 301/302 after POST, switch to GET without a body.
 - **Host/domain inputs normalised like URLs** in the gateway, so `127.1`, `0x7f.1` or `0177.0.0.1` in a `host`/`domain` field are rejected, and ports other than 80/443 are refused there too.
 
-Staging results (2026-10-12): all 20 documented network endpoints returned the same status and response shape as production for their documented examples; redirects to 127.0.0.1, 169.254.169.254, 10.0.0.1, ftp:// and port 8080 were rejected; a 7-hop chain was rejected and a 3-hop chain allowed; a cross-origin redirect carrying `Authorization`, `Cookie` and `X-API-Key` arrived with none of them.
+Verified on staging and again in production (2026-10-12): all 20 documented network endpoints returned the same status and response shape as production for their documented examples; redirects to 127.0.0.1, 169.254.169.254, 10.0.0.1, ftp:// and port 8080 were rejected; a 7-hop chain was rejected and a 3-hop chain allowed; a cross-origin redirect carrying `Authorization`, `Cookie` and `X-API-Key` arrived with none of them.
 
 ## Remaining risks
 
