@@ -1,769 +1,157 @@
-// tools-mcp-server: Real MCP server (JSON-RPC 2.0)
-// Spec: https://modelcontextprotocol.io/specification
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
+// Tools That Don't Upload — MCP server (Cloudflare Worker), deployed source v1.5.0
+// Endpoint: https://toolsthatdontupload.com/mcp  (Streamable HTTP, stateless JSON-RPC)
+// tools/list returns 3 tools: search_tools, run_tool, list_categories.
+// run_tool forwards to the REST endpoints via Cloudflare service bindings (env.S_* / env.RL).
+// Request bodies are not stored. Network tools are gated by an API key in the RL (rate-limit) worker.
 
-const SERVER_INFO = {
-  name: 'tools-that-dont-upload',
-  version: '1.0.0',
-  description: '442 free API tools for file processing, data conversion, code generation. Zero retention after processing. No authentication required for free tier (50 req/day). CORS enabled. Privacy policy at https://toolsthatdontupload.com/privacy/',
-};
+const API='https://toolsthatdontupload.com';
+const CORS={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-API-Key'};
 
-// Define MCP tools with proper JSON Schema
-const MCP_TOOLS = [
+// Full tool catalog (searchable)
+const CATALOG=[{"name":"accept_header","path":"/api/accept-header","description":"Accept Header","params":["accept"],"kind":"compute","tier":"yellow","category":"web","example":{"accept":"text/html,application/json;q=0.9"}},{"name":"aes_decrypt","path":"/api/aes-decrypt","description":"Aes Decrypt","params":["encrypted","password"],"kind":"compute","tier":"yellow","category":"crypto","example":{"encrypted":"yKEQ5d3rJMdXpS8pUGmdcPAcYwPR9Ia3NmrL0QOGzSCNzn1P5TXdaFYhaFKiABg9Jc4M5/34gA==","password":"secret-pass"}},{"name":"aes_encrypt","path":"/api/aes-encrypt","description":"Aes Encrypt","params":["password","text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"password":"secret-pass","text":"Hello World"}},{"name":"age_calc","path":"/api/age-calc","description":"Age Calc","params":["birthdate"],"kind":"compute","tier":"yellow","category":"math","example":{"birthdate":"1990-05-15"}},{"name":"ai_image","path":"/api/ai-image","description":"Ai Image","params":["prompt"],"kind":"ai","tier":"blue","category":"ai","example":{"prompt":"a cute cat"}},{"name":"ai_ocr","path":"/api/ai-ocr","description":"Ai Ocr","params":["image"],"kind":"ai","tier":"blue","category":"ai","example":{"image":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="}},{"name":"ai_summarize","path":"/api/ai-summarize","description":"Ai Summarize","params":["text"],"kind":"ai","tier":"blue","category":"ai","example":{"text":"Analyze this text"}},{"name":"ai_translate","path":"/api/ai-translate","description":"Ai Translate","params":["text"],"kind":"ai","tier":"blue","category":"ai","example":{"text":"Analyze this text"}},{"name":"angle_convert","path":"/api/angle-convert","description":"Angle Convert","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"api_mock","path":"/api/api-mock","description":"Api Mock","params":["schema"],"kind":"compute","tier":"yellow","category":"misc","example":{"schema":{"type":"object","properties":{"id":{"type":"integer"}}}}},{"name":"area_convert","path":"/api/area-convert","description":"Area Convert","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"array_chunk","path":"/api/array-chunk","description":"Array Chunk","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_compact","path":"/api/array-compact","description":"Array Compact","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_count","path":"/api/array-count","description":"Array Count","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_difference","path":"/api/array-difference","description":"Array Difference","params":["array1","array2"],"kind":"compute","tier":"yellow","category":"array","example":{"array1":[1,2,3],"array2":[2,3,4]}},{"name":"array_first","path":"/api/array-first","description":"Array First","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_flatten","path":"/api/array-flatten","description":"Array Flatten","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_group_by","path":"/api/array-group-by","description":"Array Group By","params":["array","key"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5],"key":"id"}},{"name":"array_includes","path":"/api/array-includes","description":"Array Includes","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_intersect","path":"/api/array-intersect","description":"Array Intersect","params":["array1","array2"],"kind":"compute","tier":"yellow","category":"array","example":{"array1":[1,2,3],"array2":[2,3,4]}},{"name":"array_join","path":"/api/array-join","description":"Array Join","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_last","path":"/api/array-last","description":"Array Last","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_paginate","path":"/api/array-paginate","description":"Array Paginate","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_range","path":"/api/array-range","description":"Array Range","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_reverse","path":"/api/array-reverse","description":"Array Reverse","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_rotate","path":"/api/array-rotate","description":"Array Rotate","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_sample","path":"/api/array-sample","description":"Array Sample","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_shuffle","path":"/api/array-shuffle","description":"Array Shuffle","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_slice","path":"/api/array-slice","description":"Array Slice","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_sort","path":"/api/array-sort","description":"Array Sort","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_split","path":"/api/array-split","description":"Array Split","params":["text"],"kind":"compute","tier":"yellow","category":"array","example":{"text":"Hello World"}},{"name":"array_stats","path":"/api/array-stats","description":"Array Stats","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_unique","path":"/api/array-unique","description":"Array Unique","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[3,1,4,1,5]}},{"name":"array_zip","path":"/api/array-zip","description":"Array Zip","params":["arrays"],"kind":"compute","tier":"yellow","category":"array","example":{"arrays":[[1,2],[3,4]]}},{"name":"ascii_art","path":"/api/ascii-art","description":"Ascii Art","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello World"}},{"name":"aspect_ratio","path":"/api/aspect-ratio","description":"Aspect Ratio","params":["width","height"],"kind":"compute","tier":"yellow","category":"misc","example":{"width":1920,"height":1080}},{"name":"avatar_svg","path":"/api/avatar-svg","description":"Avatar Svg","params":["text"],"kind":"compute","tier":"yellow","category":"image","example":{"text":"Hello World"}},{"name":"barcode","path":"/api/barcode","description":"Barcode","params":["text"],"kind":"compute","tier":"yellow","category":"generators","example":{"text":"Hello World"}},{"name":"base_convert","path":"/api/base-convert","description":"Base Convert","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"base32","path":"/api/base32","description":"Base32","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello World"}},{"name":"base58","path":"/api/base58","description":"Base58","params":["text"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World"}},{"name":"base64","path":"/api/base64","description":"Base64","params":["text","mode"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello","mode":"encode"}},{"name":"binary_calc","path":"/api/binary-calc","description":"Binary Calc","params":["expression"],"kind":"compute","tier":"yellow","category":"encoding","example":{"expression":"1010 + 0011"}},{"name":"binary_decode","path":"/api/binary-decode","description":"Binary Decode","params":["binary"],"kind":"compute","tier":"yellow","category":"encoding","example":{"binary":"01001000 01101001"}},{"name":"binary_encode","path":"/api/binary-encode","description":"Binary Encode","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello"}},{"name":"binary_text","path":"/api/binary-text","description":"Binary Text","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello"}},{"name":"bmi_calc","path":"/api/bmi-calc","description":"Bmi Calc","params":["weight","height"],"kind":"compute","tier":"yellow","category":"math","example":{"weight":70,"height":1080}},{"name":"business_days","path":"/api/business-days","description":"Business Days","params":["start","end"],"kind":"compute","tier":"yellow","category":"date","example":{"start":"2026-01-01","end":"2026-12-31"}},{"name":"bytes_format","path":"/api/bytes-format","description":"Bytes Format","params":["bytes"],"kind":"compute","tier":"yellow","category":"misc","example":{"bytes":1048576}},{"name":"caesar_cipher","path":"/api/caesar-cipher","description":"Caesar Cipher","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"calendar_month","path":"/api/calendar-month","description":"Calendar Month","params":["year","month"],"kind":"compute","tier":"yellow","category":"misc","example":{"year":2026,"month":10}},{"name":"canonical_url","path":"/api/canonical-url","description":"Canonical Url","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"checksum","path":"/api/checksum","description":"Checksum","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"cidr_calc","path":"/api/cidr-calc","description":"Cidr Calc","params":["cidr"],"kind":"compute","tier":"yellow","category":"math","example":{"cidr":"192.168.1.0/24"}},{"name":"code_diff","path":"/api/code-diff","description":"Code Diff","params":["text1","text2"],"kind":"compute","tier":"yellow","category":"text","example":{"text1":"...","text2":"..."}},{"name":"color_blend","path":"/api/color-blend","description":"Color Blend","params":["color1","color2"],"kind":"compute","tier":"yellow","category":"color","example":{"color1":"#6366f1","color2":"#ffffff"}},{"name":"color_brightness","path":"/api/color-brightness","description":"Color Brightness","params":["hex"],"kind":"compute","tier":"yellow","category":"color","example":{"hex":"#6366f1"}},{"name":"color_contrast","path":"/api/color-contrast","description":"Color Contrast","params":["foreground","background"],"kind":"compute","tier":"yellow","category":"color","example":{"foreground":"#000000","background":"#ffffff"}},{"name":"color_convert","path":"/api/color-convert","description":"Color Convert","params":["color"],"kind":"compute","tier":"yellow","category":"color","example":{"color":"#6366f1"}},{"name":"color_gradient","path":"/api/color-gradient","description":"Color Gradient","params":["color1","color2"],"kind":"compute","tier":"yellow","category":"color","example":{"color1":"#6366f1","color2":"#ffffff"}},{"name":"color_invert","path":"/api/color-invert","description":"Color Invert","params":["hex"],"kind":"compute","tier":"yellow","category":"color","example":{"hex":"#6366f1"}},{"name":"color_mix","path":"/api/color-mix","description":"Color Mix","params":["colors"],"kind":"compute","tier":"yellow","category":"color","example":{"colors":["#6366f1","#ffffff"]}},{"name":"color_name","path":"/api/color-name","description":"Color Name","params":["hex"],"kind":"compute","tier":"yellow","category":"color","example":{"hex":"#6366f1"}},{"name":"color_palette","path":"/api/color-palette","description":"Color Palette","params":["color"],"kind":"compute","tier":"yellow","category":"color","example":{"color":"#6366f1"}},{"name":"color_random","path":"/api/color-random","description":"Color Random","params":["color"],"kind":"compute","tier":"yellow","category":"color","example":{"color":"#6366f1"}},{"name":"color_scheme","path":"/api/color-scheme","description":"Color Scheme","params":["hex"],"kind":"compute","tier":"yellow","category":"color","example":{"hex":"#6366f1"}},{"name":"color_shades","path":"/api/color-shades","description":"Color Shades","params":["hex"],"kind":"compute","tier":"yellow","category":"color","example":{"hex":"#6366f1"}},{"name":"color_validate","path":"/api/color-validate","description":"Color Validate","params":["color"],"kind":"compute","tier":"yellow","category":"date","example":{"color":"#6366f1"}},{"name":"combination","path":"/api/combination","description":"Combination","params":["n","r"],"kind":"compute","tier":"yellow","category":"misc","example":{"n":5,"r":2}},{"name":"compound_interest","path":"/api/compound-interest","description":"Compound Interest","params":["principal","rate","years"],"kind":"compute","tier":"yellow","category":"misc","example":{"principal":10000,"rate":5,"years":10}},{"name":"cookie_parse","path":"/api/cookie-parse","description":"Cookie Parse","params":["cookie"],"kind":"compute","tier":"yellow","category":"web","example":{"cookie":"id=a3fWa; Max-Age=2592000; Secure"}},{"name":"cors_headers","path":"/api/cors-headers","description":"Cors Headers","params":["text"],"kind":"compute","tier":"yellow","category":"web","example":{"text":"Hello World"}},{"name":"cors_test","path":"/api/cors-test","description":"Cors Test","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"country_info","path":"/api/country-info","description":"Country Info","params":["code"],"kind":"compute","tier":"yellow","category":"misc","example":{"code":"US"}},{"name":"credit_card_validate","path":"/api/credit-card-validate","description":"Credit Card Validate","params":["number"],"kind":"compute","tier":"yellow","category":"date","example":{"number":"4111111111111111"}},{"name":"cron_describe","path":"/api/cron-describe","description":"Cron Describe","params":["cron"],"kind":"compute","tier":"yellow","category":"date","example":{"cron":"*/5 * * * *"}},{"name":"cron_parse","path":"/api/cron-parse","description":"Cron Parse","params":["text"],"kind":"compute","tier":"yellow","category":"date","example":{"text":"Hello World"}},{"name":"cron_random","path":"/api/cron-random","description":"Cron Random","params":["text"],"kind":"compute","tier":"yellow","category":"date","example":{"text":"Hello World"}},{"name":"cron_validate","path":"/api/cron-validate","description":"Cron Validate","params":["cron"],"kind":"compute","tier":"yellow","category":"date","example":{"cron":"*/5 * * * *"}},{"name":"crontab_next","path":"/api/crontab-next","description":"Crontab Next","params":["cron"],"kind":"compute","tier":"yellow","category":"date","example":{"cron":"*/5 * * * *"}},{"name":"csp_generate","path":"/api/csp-generate","description":"Csp Generate","params":["text"],"kind":"compute","tier":"yellow","category":"generators","example":{"text":"Hello World"}},{"name":"csp_parse","path":"/api/csp-parse","description":"Csp Parse","params":["csp"],"kind":"compute","tier":"yellow","category":"misc","example":{"csp":"default-src 'self'; img-src *"}},{"name":"css_color_to_rgb","path":"/api/css-color-to-rgb","description":"Css Color To Rgb","params":["color"],"kind":"compute","tier":"yellow","category":"color","example":{"color":"#6366f1"}},{"name":"css_minify","path":"/api/css-minify","description":"Css Minify","params":["css"],"kind":"compute","tier":"yellow","category":"misc","example":{"css":"body { color: red; }"}},{"name":"css_validate","path":"/api/css-validate","description":"Css Validate","params":["css"],"kind":"compute","tier":"yellow","category":"date","example":{"css":"body { color: red; }"}},{"name":"csv_add_column","path":"/api/csv-add-column","description":"Csv Add Column","params":["csv","column","values"],"kind":"compute","tier":"yellow","category":"data","example":{"csv":"name,age\nAlice,30\nBob,25","column":"age","values":[1,2,3]}},{"name":"csv_column","path":"/api/csv-column","description":"Csv Column","params":["csv","column"],"kind":"compute","tier":"yellow","category":"data","example":{"csv":"name,age\nAlice,30\nBob,25","column":"age"}},{"name":"csv_filter","path":"/api/csv-filter","description":"Csv Filter","params":["csv","column","operator","value"],"kind":"compute","tier":"yellow","category":"data","example":{"csv":"a,b\n1,2","column":"a","operator":"eq|gt|lt|contains","value":"1"}},{"name":"csv_merge","path":"/api/csv-merge","description":"Csv Merge","params":["csv1","csv2"],"kind":"compute","tier":"yellow","category":"data","example":{"csv1":"name,age\nAlice,30","csv2":"name,age\nBob,25"}},{"name":"csv_sort","path":"/api/csv-sort","description":"Csv Sort","params":["csv","column","order"],"kind":"compute","tier":"yellow","category":"data","example":{"csv":"a,b\n1,2","column":"a","order":"asc|desc"}},{"name":"csv_stats","path":"/api/csv-stats","description":"Csv Stats","params":["csv"],"kind":"compute","tier":"yellow","category":"data","example":{"csv":"name,age\nAlice,30\nBob,25"}},{"name":"csv_to_excel","path":"/api/csv-to-excel","description":"Csv To Excel","params":["csv"],"kind":"compute","tier":"yellow","category":"data","example":{"csv":"name,age\nAlice,30\nBob,25"}},{"name":"csv_to_json","path":"/api/csv-to-json","description":"Csv To Json","params":["csv"],"kind":"compute","tier":"yellow","category":"data","example":{"csv":"name,age\nAlice,30\nBob,25"}},{"name":"csv_to_markdown","path":"/api/csv-to-markdown","description":"Csv To Markdown","params":["csv"],"kind":"compute","tier":"yellow","category":"data","example":{"csv":"name,age\nAlice,30\nBob,25"}},{"name":"curl_parse","path":"/api/curl-parse","description":"Curl Parse","params":["curl"],"kind":"compute","tier":"yellow","category":"web","example":{"curl":"curl -X POST https://api.example.com -H 'Content-Type: application/json' -d '{\"a\":1}'"}},{"name":"currency","path":"/api/currency","description":"Currency","params":["amount","from","to"],"kind":"compute","tier":"yellow","category":"conversion","example":{"amount":100,"from":"USD","to":"EUR"}},{"name":"data_convert","path":"/api/data-convert","description":"Data Convert","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"data_masking","path":"/api/data-masking","description":"Data Masking","params":["text"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World"}},{"name":"date_add","path":"/api/date-add","description":"Date Add","params":["date"],"kind":"compute","tier":"yellow","category":"date","example":{"date":"2026-10-11"}},{"name":"date_calc","path":"/api/date-calc","description":"Date Calc","params":["date1","date2"],"kind":"compute","tier":"yellow","category":"math","example":{"date1":"2026-01-01","date2":"2026-12-31"}},{"name":"date_countdown","path":"/api/date-countdown","description":"Date Countdown","params":["target"],"kind":"compute","tier":"yellow","category":"date","example":{"target":"2026-12-25"}},{"name":"date_diff_detailed","path":"/api/date-diff-detailed","description":"Date Diff Detailed","params":["date1","date2"],"kind":"compute","tier":"yellow","category":"text","example":{"date1":"2026-01-01","date2":"2026-12-31"}},{"name":"date_format","path":"/api/date-format","description":"Date Format","params":["date"],"kind":"compute","tier":"yellow","category":"date","example":{"date":"2026-10-11"}},{"name":"date_format_convert","path":"/api/date-format-convert","description":"Date Format Convert","params":["date"],"kind":"compute","tier":"yellow","category":"date","example":{"date":"2026-10-11"}},{"name":"date_parse","path":"/api/date-parse","description":"Date Parse","params":["text"],"kind":"compute","tier":"yellow","category":"date","example":{"text":"2026-10-12 14:30"}},{"name":"date_range","path":"/api/date-range","description":"Date Range","params":["start","end"],"kind":"compute","tier":"yellow","category":"date","example":{"start":"2026-01-01","end":"2026-12-31"}},{"name":"date_relative","path":"/api/date-relative","description":"Date Relative","params":["date"],"kind":"compute","tier":"yellow","category":"date","example":{"date":"2026-10-11"}},{"name":"date_week_number","path":"/api/date-week-number","description":"Date Week Number","params":["date"],"kind":"compute","tier":"yellow","category":"math","example":{"date":"2026-10-11"}},{"name":"day_of_year","path":"/api/day-of-year","description":"Day Of Year","params":["date"],"kind":"compute","tier":"yellow","category":"date","example":{"date":"2026-01-01"}},{"name":"days_in_month","path":"/api/days-in-month","description":"Days In Month","params":["year","month"],"kind":"compute","tier":"yellow","category":"date","example":{"year":2026,"month":10}},{"name":"detect_format","path":"/api/detect-format","description":"Detect Format","params":["text"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World"}},{"name":"diff","path":"/api/diff","description":"Diff","params":["text1","text2"],"kind":"compute","tier":"yellow","category":"text","example":{"text1":"hello world","text2":"hello there"}},{"name":"distance","path":"/api/distance","description":"Distance","params":["value"],"kind":"compute","tier":"yellow","category":"misc","example":{"value":42}},{"name":"dns_lookup","path":"/api/dns-lookup","description":"Dns Lookup","params":["domain"],"kind":"network","tier":"orange","category":"network","example":{"domain":"example.com"}},{"name":"dns_record_info","path":"/api/dns-record-info","description":"Dns Record Info","params":["domain"],"kind":"compute","tier":"yellow","category":"web","example":{"domain":"example.com"}},{"name":"domain_age","path":"/api/domain-age","description":"Domain Age","params":["domain"],"kind":"network","tier":"orange","category":"network","example":{"domain":"example.com"}},{"name":"domain_validate","path":"/api/domain-validate","description":"Domain Validate","params":["domain"],"kind":"compute","tier":"yellow","category":"date","example":{"domain":"example.com"}},{"name":"duration_format","path":"/api/duration-format","description":"Duration Format","params":["seconds"],"kind":"compute","tier":"yellow","category":"date","example":{"seconds":"Hello World"}},{"name":"echo","path":"/api/echo","description":"Echo","params":["data"],"kind":"compute","tier":"yellow","category":"misc","example":{"data":{"hello":"world"}}},{"name":"email_parse","path":"/api/email-parse","description":"Email Parse","params":["email"],"kind":"compute","tier":"yellow","category":"web","example":{"email":"user@example.com"}},{"name":"email_validate","path":"/api/email-validate","description":"Email Validate","params":["email"],"kind":"compute","tier":"yellow","category":"date","example":{"email":"user@example.com"}},{"name":"emoji_search","path":"/api/emoji-search","description":"Emoji Search","params":["query"],"kind":"compute","tier":"yellow","category":"misc","example":{"query":"a=1&b=2"}},{"name":"energy_convert","path":"/api/energy-convert","description":"Energy Convert","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"env_to_json","path":"/api/env-to-json","description":"Env To Json","params":["env"],"kind":"compute","tier":"yellow","category":"misc","example":{"env":"Hello World"}},{"name":"escape_unescape","path":"/api/escape-unescape","description":"Escape Unescape","params":["text"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World"}},{"name":"etag_generate","path":"/api/etag-generate","description":"Etag Generate","params":["content"],"kind":"compute","tier":"yellow","category":"generators","example":{"content":"Hello World"}},{"name":"excerpt","path":"/api/excerpt","description":"Excerpt","params":["text"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World"}},{"name":"fake_data","path":"/api/fake-data","description":"Fake Data","params":["text"],"kind":"compute","tier":"yellow","category":"generators","example":{"text":"Hello World"}},{"name":"favicon","path":"/api/favicon","description":"Favicon","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"fibonacci","path":"/api/fibonacci","description":"Fibonacci","params":["text"],"kind":"compute","tier":"yellow","category":"math","example":{"text":"Hello World"}},{"name":"fiscal_year","path":"/api/fiscal-year","description":"Fiscal Year","params":["date"],"kind":"compute","tier":"yellow","category":"misc","example":{"date":"2026-01-01"}},{"name":"gcd","path":"/api/gcd","description":"Gcd","params":["a","b"],"kind":"compute","tier":"yellow","category":"math","example":{"a":12,"b":18}},{"name":"geometric_mean","path":"/api/geometric-mean","description":"Geometric Mean","params":["numbers"],"kind":"compute","tier":"yellow","category":"misc","example":{"numbers":[3,1,4,1,5]}},{"name":"glob_match","path":"/api/glob-match","description":"Glob Match","params":["filename","pattern"],"kind":"compute","tier":"yellow","category":"misc","example":{"filename":"Hello World","pattern":"\\d+"}},{"name":"gradient_css","path":"/api/gradient-css","description":"Gradient Css","params":["color1","color2"],"kind":"compute","tier":"yellow","category":"misc","example":{"color1":"#6366f1","color2":"#ffffff"}},{"name":"hash","path":"/api/hash","description":"Hash","params":["text","algorithm"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World","algorithm":"SHA-256"}},{"name":"hash_compare","path":"/api/hash-compare","description":"Hash Compare","params":["hash1","hash2"],"kind":"compute","tier":"yellow","category":"crypto","example":{"hash1":"Hello World","hash2":"Hello World"}},{"name":"hash_file","path":"/api/hash-file","description":"Hash File","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"hash_identify","path":"/api/hash-identify","description":"Hash Identify","params":["hash"],"kind":"compute","tier":"yellow","category":"crypto","example":{"hash":"Hello World"}},{"name":"hash_multiple","path":"/api/hash-multiple","description":"Hash Multiple","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"hashtag_generate","path":"/api/hashtag-generate","description":"Hashtag Generate","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"headers_parse","path":"/api/headers-parse","description":"Headers Parse","params":["raw"],"kind":"compute","tier":"yellow","category":"web","example":{"raw":"Hello World"}},{"name":"hex_calc","path":"/api/hex-calc","description":"Hex Calc","params":["expression"],"kind":"compute","tier":"yellow","category":"encoding","example":{"expression":"FF + 1A"}},{"name":"hex_decode","path":"/api/hex-decode","description":"Hex Decode","params":["hex"],"kind":"compute","tier":"yellow","category":"encoding","example":{"hex":"#6366f1"}},{"name":"hex_encode","path":"/api/hex-encode","description":"Hex Encode","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello"}},{"name":"hex_text","path":"/api/hex-text","description":"Hex Text","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello"}},{"name":"hex_validate","path":"/api/hex-validate","description":"Hex Validate","params":["hex"],"kind":"compute","tier":"yellow","category":"encoding","example":{"hex":"#6366f1"}},{"name":"hmac","path":"/api/hmac","description":"Hmac","params":["text","key"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World","key":"id"}},{"name":"html_clean","path":"/api/html-clean","description":"Html Clean","params":["html"],"kind":"compute","tier":"yellow","category":"text","example":{"html":"<h1>Hello</h1><p>World</p>"}},{"name":"html_entities","path":"/api/html-entities","description":"Html Entities","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello World"}},{"name":"html_minify","path":"/api/html-minify","description":"Html Minify","params":["html"],"kind":"compute","tier":"yellow","category":"text","example":{"html":"<h1>Hello</h1><p>World</p>"}},{"name":"html_table_to_json","path":"/api/html-table-to-json","description":"Html Table To Json","params":["html"],"kind":"compute","tier":"yellow","category":"text","example":{"html":"<h1>Hello</h1><p>World</p>"}},{"name":"html_to_json","path":"/api/html-to-json","description":"Html To Json","params":["html"],"kind":"compute","tier":"yellow","category":"text","example":{"html":"<h1>Hello</h1><p>World</p>"}},{"name":"html_to_markdown","path":"/api/html-to-markdown","description":"Html To Markdown","params":["html"],"kind":"compute","tier":"yellow","category":"text","example":{"html":"<h1>Hello</h1><p>World</p>"}},{"name":"html_to_text","path":"/api/html-to-text","description":"Html To Text","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"http_auth_basic","path":"/api/http-auth-basic","description":"Http Auth Basic","params":["username","password"],"kind":"compute","tier":"yellow","category":"web","example":{"username":"Hello World","password":"secret-pass"}},{"name":"http_auth_bearer","path":"/api/http-auth-bearer","description":"Http Auth Bearer","params":["token"],"kind":"compute","tier":"yellow","category":"web","example":{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"}},{"name":"http_bin_get","path":"/api/http-bin-get","description":"Http Bin Get","params":["text"],"kind":"compute","tier":"yellow","category":"web","example":{"text":"Hello World"}},{"name":"http_bin_post","path":"/api/http-bin-post","description":"Http Bin Post","params":["text"],"kind":"compute","tier":"yellow","category":"web","example":{"text":"Hello World"}},{"name":"http_cache_headers","path":"/api/http-cache-headers","description":"Http Cache Headers","params":["text"],"kind":"compute","tier":"yellow","category":"web","example":{"text":"Hello World"}},{"name":"http_delay","path":"/api/http-delay","description":"Http Delay","params":["text"],"kind":"compute","tier":"yellow","category":"web","example":{"text":"Hello World"}},{"name":"http_headers","path":"/api/http-headers","description":"Http Headers","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"http_method_info","path":"/api/http-method-info","description":"Http Method Info","params":["method"],"kind":"compute","tier":"yellow","category":"web","example":{"method":"GET"}},{"name":"http_redirect","path":"/api/http-redirect","description":"Http Redirect","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"http_status","path":"/api/http-status","description":"Http Status","params":["code"],"kind":"compute","tier":"yellow","category":"web","example":{"code":"US"}},{"name":"http_status_code","path":"/api/http-status-code","description":"Http Status Code","params":["text"],"kind":"compute","tier":"yellow","category":"web","example":{"text":"Hello World"}},{"name":"iban_validate","path":"/api/iban-validate","description":"Iban Validate","params":["iban"],"kind":"compute","tier":"yellow","category":"date","example":{"iban":"GB82WEST12345698765432"}},{"name":"id_generator","path":"/api/id-generator","description":"Id Generator","params":["text"],"kind":"compute","tier":"yellow","category":"generators","example":{"text":"Hello World"}},{"name":"ini_to_json","path":"/api/ini-to-json","description":"Ini To Json","params":["ini"],"kind":"compute","tier":"yellow","category":"misc","example":{"ini":"Hello World"}},{"name":"invoice_generate","path":"/api/invoice-generate","description":"Invoice Generate","params":["items"],"kind":"compute","tier":"yellow","category":"generators","example":{"items":[3,1,4,1,5]}},{"name":"ip_range","path":"/api/ip-range","description":"Ip Range","params":["start","end"],"kind":"compute","tier":"yellow","category":"web","example":{"start":"2026-01-01","end":"2026-12-31"}},{"name":"ip_to_binary","path":"/api/ip-to-binary","description":"Ip To Binary","params":["ip"],"kind":"compute","tier":"yellow","category":"encoding","example":{"ip":"8.8.8.8"}},{"name":"ip_validate","path":"/api/ip-validate","description":"Ip Validate","params":["ip"],"kind":"compute","tier":"yellow","category":"date","example":{"ip":"8.8.8.8"}},{"name":"ipv6_validate","path":"/api/ipv6-validate","description":"Ipv6 Validate","params":["ip"],"kind":"compute","tier":"yellow","category":"date","example":{"ip":"2001:db8::1"}},{"name":"is_json","path":"/api/is-json","description":"Is Json","params":["text"],"kind":"compute","tier":"yellow","category":"validation","example":{"text":"{\"a\":1}"}},{"name":"is_leap_year","path":"/api/is-leap-year","description":"Is Leap Year","params":["year"],"kind":"compute","tier":"yellow","category":"validation","example":{"year":2026}},{"name":"is_number","path":"/api/is-number","description":"Is Number","params":["value"],"kind":"compute","tier":"yellow","category":"math","example":{"value":42}},{"name":"is_prime","path":"/api/is-prime","description":"Is Prime","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"is_weekend","path":"/api/is-weekend","description":"Is Weekend","params":["date"],"kind":"compute","tier":"yellow","category":"date","example":{"date":"2026-01-01"}},{"name":"isbn_validate","path":"/api/isbn-validate","description":"Isbn Validate","params":["isbn"],"kind":"compute","tier":"yellow","category":"date","example":{"isbn":"9780306406157"}},{"name":"iso_week","path":"/api/iso-week","description":"Iso Week","params":["date"],"kind":"compute","tier":"yellow","category":"date","example":{"date":"2026-01-01"}},{"name":"js_minify","path":"/api/js-minify","description":"Js Minify","params":["js"],"kind":"compute","tier":"yellow","category":"misc","example":{"js":"function a(){ return 1; }"}},{"name":"json_clone","path":"/api/json-clone","description":"Json Clone","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_compare","path":"/api/json-compare","description":"Json Compare","params":["json1","json2"],"kind":"compute","tier":"yellow","category":"data","example":{"json1":"{\"a\":1}","json2":"{\"a\":2}"}},{"name":"json_depth","path":"/api/json-depth","description":"Json Depth","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_diff","path":"/api/json-diff","description":"Json Diff","params":["json1","json2"],"kind":"compute","tier":"yellow","category":"data","example":{"json1":{"a":1,"b":2},"json2":{"a":1,"b":3}}},{"name":"json_diff_v2","path":"/api/json-diff-v2","description":"Json Diff V2","params":["before","after"],"kind":"compute","tier":"yellow","category":"data","example":{"before":{"a":1,"b":2},"after":{"a":1,"b":3,"c":4}}},{"name":"json_equal","path":"/api/json-equal","description":"Json Equal","params":["a","b"],"kind":"compute","tier":"yellow","category":"data","example":{"a":{"x":1},"b":{"x":1}}},{"name":"json_flatten","path":"/api/json-flatten","description":"Json Flatten","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_format","path":"/api/json-format","description":"Json Format","params":["json"],"kind":"compute","tier":"yellow","category":"data","example":{"json":"{\"name\":\"test\",\"value\":123}"}},{"name":"json_key_rename","path":"/api/json-key-rename","description":"Json Key Rename","params":["data","rename"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}},"rename":"Hello World"}},{"name":"json_keys_v2","path":"/api/json-keys-v2","description":"Json Keys V2","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_lint","path":"/api/json-lint","description":"Json Lint","params":["json"],"kind":"compute","tier":"yellow","category":"data","example":{"json":{"a":1,"b":{"c":2}}}},{"name":"json_merge","path":"/api/json-merge","description":"Json Merge","params":["objects"],"kind":"compute","tier":"yellow","category":"data","example":{"objects":[{"a":1},{"b":2}]}},{"name":"json_minify","path":"/api/json-minify","description":"Json Minify","params":["json"],"kind":"compute","tier":"yellow","category":"data","example":{"json":{"a":1,"b":{"c":2}}}},{"name":"json_null_remove","path":"/api/json-null-remove","description":"Json Null Remove","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_patch","path":"/api/json-patch","description":"Json Patch","params":["original","modified"],"kind":"compute","tier":"yellow","category":"data","example":{"original":{"a":1,"b":2},"modified":{"a":1,"b":3}}},{"name":"json_path","path":"/api/json-path","description":"Json Path","params":["data","path"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}},"path":"$.a"}},{"name":"json_prettify","path":"/api/json-prettify","description":"Json Prettify","params":["json"],"kind":"compute","tier":"yellow","category":"data","example":{"json":{"a":1,"b":{"c":2}}}},{"name":"json_query","path":"/api/json-query","description":"Json Query","params":["data","query"],"kind":"compute","tier":"yellow","category":"data","example":{"data":[{"name":"Alice","age":30},{"name":"Bob","age":25}],"query":"age > 26"}},{"name":"json_schema","path":"/api/json-schema","description":"Json Schema","params":["data","schema"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"name":"Alice"},"schema":{"type":"object","properties":{"name":{"type":"string"}}}}},{"name":"json_size","path":"/api/json-size","description":"Json Size","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_sort_keys","path":"/api/json-sort-keys","description":"Json Sort Keys","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_csharp","path":"/api/json-to-csharp","description":"Json To Csharp","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_csv","path":"/api/json-to-csv","description":"Json To Csv","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":[{"name":"Alice","age":30},{"name":"Bob","age":25}]}},{"name":"json_to_csv_flat","path":"/api/json-to-csv-flat","description":"Json To Csv Flat","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_dotenv","path":"/api/json-to-dotenv","description":"Json To Dotenv","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_env","path":"/api/json-to-env","description":"Json To Env","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_form","path":"/api/json-to-form","description":"Json To Form","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_form_data","path":"/api/json-to-form-data","description":"Json To Form Data","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_go","path":"/api/json-to-go","description":"Json To Go","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_graphql","path":"/api/json-to-graphql","description":"Json To Graphql","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_html_list","path":"/api/json-to-html-list","description":"Json To Html List","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_ini","path":"/api/json-to-ini","description":"Json To Ini","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_java","path":"/api/json-to-java","description":"Json To Java","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_kotlin","path":"/api/json-to-kotlin","description":"Json To Kotlin","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_markdown_table","path":"/api/json-to-markdown-table","description":"Json To Markdown Table","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":[{"name":"Alice","age":30},{"name":"Bob","age":25}]}},{"name":"json_to_php","path":"/api/json-to-php","description":"Json To Php","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_python","path":"/api/json-to-python","description":"Json To Python","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_querystring","path":"/api/json-to-querystring","description":"Json To Querystring","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_ruby","path":"/api/json-to-ruby","description":"Json To Ruby","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_rust","path":"/api/json-to-rust","description":"Json To Rust","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_schema","path":"/api/json-to-schema","description":"Json To Schema","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_sql_create","path":"/api/json-to-sql-create","description":"Json To Sql Create","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_sql_insert","path":"/api/json-to-sql-insert","description":"Json To Sql Insert","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_swift","path":"/api/json-to-swift","description":"Json To Swift","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_table","path":"/api/json-to-table","description":"Json To Table","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":[{"name":"Alice","age":30},{"name":"Bob","age":25}]}},{"name":"json_to_tsv","path":"/api/json-to-tsv","description":"Json To Tsv","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":[{"name":"Alice","age":30},{"name":"Bob","age":25}]}},{"name":"json_to_typescript","path":"/api/json-to-typescript","description":"Json To Typescript","params":["data","name"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"id":1,"name":"test","active":true},"name":"MyType"}},{"name":"json_to_xml","path":"/api/json-to-xml","description":"Json To Xml","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"root":{"item":"hello"}}}},{"name":"json_to_xml_attr","path":"/api/json-to-xml-attr","description":"Json To Xml Attr","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_xml_pretty","path":"/api/json-to-xml-pretty","description":"Json To Xml Pretty","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_yaml","path":"/api/json-to-yaml","description":"Json To Yaml","params":["json"],"kind":"compute","tier":"yellow","category":"data","example":{"json":{"a":1,"b":[1,2]}}},{"name":"json_to_yaml_pretty","path":"/api/json-to-yaml-pretty","description":"Json To Yaml Pretty","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_to_yaml_v2","path":"/api/json-to-yaml-v2","description":"Json To Yaml V2","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_transform","path":"/api/json-transform","description":"Json Transform","params":["data","transform"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}},"transform":"Hello World"}},{"name":"json_type","path":"/api/json-type","description":"Json Type","params":["text"],"kind":"compute","tier":"yellow","category":"data","example":{"text":"Hello World"}},{"name":"json_unflatten","path":"/api/json-unflatten","description":"Json Unflatten","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"json_validate","path":"/api/json-validate","description":"Json Validate","params":["json"],"kind":"compute","tier":"yellow","category":"data","example":{"json":{"a":1,"b":{"c":2}}}},{"name":"json_values_v2","path":"/api/json-values-v2","description":"Json Values V2","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":{"a":1,"b":{"c":2}}}},{"name":"jwt_create","path":"/api/jwt-create","description":"Jwt Create","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"jwt_decode","path":"/api/jwt-decode","description":"Jwt Decode","params":["token"],"kind":"compute","tier":"yellow","category":"crypto","example":{"token":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"}},{"name":"jwt_encode","path":"/api/jwt-encode","description":"Jwt Encode","params":["payload","secret"],"kind":"compute","tier":"yellow","category":"crypto","example":{"payload":"Hello World","secret":"my-secret"}},{"name":"key_pair","path":"/api/key-pair","description":"Key Pair","params":["text"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World"}},{"name":"keyword_density","path":"/api/keyword-density","description":"Keyword Density","params":["text","keyword"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World","keyword":"Hello World"}},{"name":"keyword_extract","path":"/api/keyword-extract","description":"Keyword Extract","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"language_detect","path":"/api/language-detect","description":"Language Detect","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"lcm_multi","path":"/api/lcm-multi","description":"Lcm Multi","params":["numbers"],"kind":"compute","tier":"yellow","category":"math","example":{"numbers":[3,1,4,1,5]}},{"name":"length_convert","path":"/api/length-convert","description":"Length Convert","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"lighthouse_score","path":"/api/lighthouse-score","description":"Lighthouse Score","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"link_check","path":"/api/link-check","description":"Link Check","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"list_to_text","path":"/api/list-to-text","description":"List To Text","params":["items"],"kind":"compute","tier":"yellow","category":"misc","example":{"items":[3,1,4,1,5]}},{"name":"loan_calc","path":"/api/loan-calc","description":"Loan Calc","params":["principal","rate","years"],"kind":"compute","tier":"yellow","category":"math","example":{"principal":10000,"rate":5,"years":10}},{"name":"lorem_ipsum","path":"/api/lorem-ipsum","description":"Lorem Ipsum","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"lorem_korean","path":"/api/lorem-korean","description":"Lorem Korean","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"mac_format","path":"/api/mac-format","description":"Mac Format","params":["mac"],"kind":"compute","tier":"yellow","category":"web","example":{"mac":"00:1A:2B:3C:4D:5E"}},{"name":"mac_validate","path":"/api/mac-validate","description":"Mac Validate","params":["mac"],"kind":"compute","tier":"yellow","category":"date","example":{"mac":"00:1A:2B:3C:4D:5E"}},{"name":"margin_calc","path":"/api/margin-calc","description":"Margin Calc","params":["cost","price"],"kind":"compute","tier":"yellow","category":"math","example":{"cost":"Hello World","price":"Hello World"}},{"name":"markdown","path":"/api/markdown","description":"Markdown","params":["markdown"],"kind":"compute","tier":"yellow","category":"text","example":{"markdown":"# Hello\n**Bold** text"}},{"name":"markdown_links","path":"/api/markdown-links","description":"Markdown Links","params":["markdown"],"kind":"compute","tier":"yellow","category":"text","example":{"markdown":"# Title\n\n**bold** text"}},{"name":"markdown_to_html","path":"/api/markdown-to-html","description":"Markdown To Html","params":["markdown"],"kind":"compute","tier":"yellow","category":"text","example":{"markdown":"# Title\n\n**bold** text"}},{"name":"markdown_to_text","path":"/api/markdown-to-text","description":"Markdown To Text","params":["markdown"],"kind":"compute","tier":"yellow","category":"text","example":{"markdown":"# Title\n\n**bold** text"}},{"name":"markdown_toc","path":"/api/markdown-toc","description":"Markdown Toc","params":["markdown"],"kind":"compute","tier":"yellow","category":"text","example":{"markdown":"# Title\n\n**bold** text"}},{"name":"math_abs","path":"/api/math-abs","description":"Math Abs","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"math_average","path":"/api/math-average","description":"Math Average","params":["numbers"],"kind":"compute","tier":"yellow","category":"math","example":{"numbers":[3,1,4,1,5]}},{"name":"math_ceil","path":"/api/math-ceil","description":"Math Ceil","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"math_clamp","path":"/api/math-clamp","description":"Math Clamp","params":["value","min","max"],"kind":"compute","tier":"yellow","category":"math","example":{"value":42,"min":1,"max":100}},{"name":"math_clamp_v2","path":"/api/math-clamp-v2","description":"Math Clamp V2","params":["value"],"kind":"compute","tier":"yellow","category":"math","example":{"value":42}},{"name":"math_eval","path":"/api/math-eval","description":"Math Eval","params":["expression"],"kind":"compute","tier":"yellow","category":"math","example":{"expression":"2*(3+4)"}},{"name":"math_factorial","path":"/api/math-factorial","description":"Math Factorial","params":["n"],"kind":"compute","tier":"yellow","category":"math","example":{"n":5}},{"name":"math_floor","path":"/api/math-floor","description":"Math Floor","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"math_log","path":"/api/math-log","description":"Math Log","params":["value"],"kind":"compute","tier":"yellow","category":"math","example":{"value":42}},{"name":"math_map","path":"/api/math-map","description":"Math Map","params":["value","inMin","inMax","outMin","outMax"],"kind":"compute","tier":"yellow","category":"math","example":{"value":42,"inMin":"Hello World","inMax":"Hello World","outMin":"Hello World","outMax":"Hello World"}},{"name":"math_min_max","path":"/api/math-min-max","description":"Math Min Max","params":["numbers"],"kind":"compute","tier":"yellow","category":"math","example":{"numbers":[3,1,4,1,5]}},{"name":"math_power","path":"/api/math-power","description":"Math Power","params":["base","exp"],"kind":"compute","tier":"yellow","category":"math","example":{"base":"#6366f1","exp":"Hello World"}},{"name":"math_random","path":"/api/math-random","description":"Math Random","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"math_round_v2","path":"/api/math-round-v2","description":"Math Round V2","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"math_sign","path":"/api/math-sign","description":"Math Sign","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"math_sqrt","path":"/api/math-sqrt","description":"Math Sqrt","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"math_sum","path":"/api/math-sum","description":"Math Sum","params":["numbers"],"kind":"compute","tier":"yellow","category":"math","example":{"numbers":[3,1,4,1,5]}},{"name":"math_trig","path":"/api/math-trig","description":"Math Trig","params":["angle"],"kind":"compute","tier":"yellow","category":"math","example":{"angle":"Hello World"}},{"name":"matrix_calc","path":"/api/matrix-calc","description":"Matrix Calc","params":["matrix","operation"],"kind":"compute","tier":"yellow","category":"math","example":{"matrix":[[1,2],[3,4]],"operation":"determinant"}},{"name":"md_table","path":"/api/md-table","description":"Md Table","params":["data"],"kind":"compute","tier":"yellow","category":"text","example":{"data":[{"name":"Alice","age":30},{"name":"Bob","age":25}]}},{"name":"meta_description","path":"/api/meta-description","description":"Meta Description","params":["title","keyword"],"kind":"compute","tier":"yellow","category":"web","example":{"title":"Hello World","keyword":"Hello World"}},{"name":"meta_extract","path":"/api/meta-extract","description":"Meta Extract","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"meta_generate","path":"/api/meta-generate","description":"Meta Generate","params":["title"],"kind":"compute","tier":"yellow","category":"generators","example":{"title":"Hello World"}},{"name":"meta_score","path":"/api/meta-score","description":"Meta Score","params":["url","html"],"kind":"compute","tier":"yellow","category":"web","example":{"url":"https://example.com","html":"<h1>Hello</h1><p>World</p>"}},{"name":"mime_lookup","path":"/api/mime-lookup","description":"Mime Lookup","params":["extension","filename"],"kind":"compute","tier":"yellow","category":"web","example":{"extension":"Hello World","filename":"Hello World"}},{"name":"mock_json","path":"/api/mock-json","description":"Mock Json","params":["schema"],"kind":"compute","tier":"yellow","category":"misc","example":{"schema":{"type":"object","properties":{"id":{"type":"integer"}}}}},{"name":"morse_code","path":"/api/morse-code","description":"Morse Code","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello World"}},{"name":"nato_phonetic","path":"/api/nato-phonetic","description":"Nato Phonetic","params":["text"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World"}},{"name":"number_base","path":"/api/number-base","description":"Number Base","params":["value","from"],"kind":"compute","tier":"yellow","category":"math","example":{"value":"255","from":10}},{"name":"number_format","path":"/api/number-format","description":"Number Format","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"number_round","path":"/api/number-round","description":"Number Round","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"number_to_ordinal","path":"/api/number-to-ordinal","description":"Number To Ordinal","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"number_to_words","path":"/api/number-to-words","description":"Number To Words","params":["number"],"kind":"compute","tier":"yellow","category":"text","example":{"number":42}},{"name":"object_diff","path":"/api/object-diff","description":"Object Diff","params":["obj1","obj2"],"kind":"compute","tier":"yellow","category":"array","example":{"obj1":{"a":1,"b":2},"obj2":{"a":1,"b":3}}},{"name":"object_entries","path":"/api/object-entries","description":"Object Entries","params":["data"],"kind":"compute","tier":"yellow","category":"array","example":{"data":{"key":"value"}}},{"name":"object_flatten","path":"/api/object-flatten","description":"Object Flatten","params":["data"],"kind":"compute","tier":"yellow","category":"array","example":{"data":{"key":"value"}}},{"name":"object_has","path":"/api/object-has","description":"Object Has","params":["data","key"],"kind":"compute","tier":"yellow","category":"array","example":{"data":{"a":1,"b":{"c":2}},"key":"id"}},{"name":"object_invert","path":"/api/object-invert","description":"Object Invert","params":["data"],"kind":"compute","tier":"yellow","category":"array","example":{"data":{"key":"value"}}},{"name":"object_keys","path":"/api/object-keys","description":"Object Keys","params":["data"],"kind":"compute","tier":"yellow","category":"array","example":{"data":{"key":"value"}}},{"name":"object_merge_v2","path":"/api/object-merge-v2","description":"Object Merge V2","params":["objects"],"kind":"compute","tier":"yellow","category":"array","example":{"objects":[{"a":1},{"b":2}]}},{"name":"object_omit","path":"/api/object-omit","description":"Object Omit","params":["data","keys"],"kind":"compute","tier":"yellow","category":"array","example":{"data":{"a":1,"b":{"c":2}},"keys":["a"]}},{"name":"object_pick","path":"/api/object-pick","description":"Object Pick","params":["data","keys"],"kind":"compute","tier":"yellow","category":"array","example":{"data":{"a":1,"b":{"c":2}},"keys":["a"]}},{"name":"open_graph","path":"/api/open-graph","description":"Open Graph","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"otp_generate","path":"/api/otp-generate","description":"Otp Generate","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"otp_verify","path":"/api/otp-verify","description":"Otp Verify","params":["secret","code"],"kind":"compute","tier":"yellow","category":"crypto","example":{"secret":"my-secret","code":"US"}},{"name":"password_hash","path":"/api/password-hash","description":"Password Hash","params":["password"],"kind":"compute","tier":"yellow","category":"crypto","example":{"password":"secret-pass"}},{"name":"password_policy","path":"/api/password-policy","description":"Password Policy","params":["password"],"kind":"compute","tier":"yellow","category":"crypto","example":{"password":"Str0ng!Passw0rd"}},{"name":"password_strength","path":"/api/password-strength","description":"Password Strength","params":["password"],"kind":"compute","tier":"yellow","category":"crypto","example":{"password":"secret-pass"}},{"name":"pdf_extract","path":"/api/pdf-extract","description":"Pdf Extract","params":["file"],"kind":"file","tier":"yellow","category":"pdf","mcp":false,"note":"File upload tool: call the REST endpoint with multipart/form-data. Not callable through MCP yet."},{"name":"pdf_merge","path":"/api/pdf-merge","description":"Pdf Merge","params":["file"],"kind":"file","tier":"yellow","category":"pdf","mcp":false,"note":"File upload tool: call the REST endpoint with multipart/form-data. Not callable through MCP yet."},{"name":"pdf_metadata","path":"/api/pdf-metadata","description":"Pdf Metadata","params":["file"],"kind":"file","tier":"yellow","category":"pdf","mcp":false,"note":"File upload tool: call the REST endpoint with multipart/form-data. Not callable through MCP yet."},{"name":"pdf_rotate","path":"/api/pdf-rotate","description":"Pdf Rotate","params":["file"],"kind":"file","tier":"yellow","category":"pdf","mcp":false,"note":"File upload tool: call the REST endpoint with multipart/form-data. Not callable through MCP yet."},{"name":"pdf_split","path":"/api/pdf-split","description":"Pdf Split","params":["file"],"kind":"file","tier":"yellow","category":"pdf","mcp":false,"note":"File upload tool: call the REST endpoint with multipart/form-data. Not callable through MCP yet."},{"name":"pdf_watermark","path":"/api/pdf-watermark","description":"Pdf Watermark","params":["file"],"kind":"file","tier":"yellow","category":"pdf","mcp":false,"note":"File upload tool: call the REST endpoint with multipart/form-data. Not callable through MCP yet."},{"name":"percentage","path":"/api/percentage","description":"Percentage","params":["value","total"],"kind":"compute","tier":"yellow","category":"math","example":{"value":42,"total":"Hello World"}},{"name":"percentile","path":"/api/percentile","description":"Percentile","params":["numbers","percentile"],"kind":"compute","tier":"yellow","category":"math","example":{"numbers":[3,1,4,1,5],"percentile":"Hello World"}},{"name":"permutation","path":"/api/permutation","description":"Permutation","params":["n","r"],"kind":"compute","tier":"yellow","category":"misc","example":{"n":5,"r":2}},{"name":"phone_format","path":"/api/phone-format","description":"Phone Format","params":["phone"],"kind":"compute","tier":"yellow","category":"misc","example":{"phone":"+14155552671"}},{"name":"phone_validate","path":"/api/phone-validate","description":"Phone Validate","params":["phone"],"kind":"compute","tier":"yellow","category":"date","example":{"phone":"+14155552671"}},{"name":"placeholder","path":"/api/placeholder","description":"Placeholder","params":["text"],"kind":"compute","tier":"yellow","category":"image","example":{"text":"Hello World"}},{"name":"port_info","path":"/api/port-info","description":"Port Info","params":["port"],"kind":"compute","tier":"yellow","category":"web","example":{"port":443}},{"name":"pressure_convert","path":"/api/pressure-convert","description":"Pressure Convert","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"prime_factors","path":"/api/prime-factors","description":"Prime Factors","params":["number"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42}},{"name":"properties_to_json","path":"/api/properties-to-json","description":"Properties To Json","params":["properties"],"kind":"compute","tier":"yellow","category":"misc","example":{"properties":"Hello World"}},{"name":"punycode","path":"/api/punycode","description":"Punycode","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"한국.com"}},{"name":"qr","path":"/api/qr","description":"Generate a QR code (SVG)","params":["text","size"],"kind":"compute","tier":"yellow","category":"generators","example":{"text":"hello","size":256},"method":"GET"},{"name":"quadratic","path":"/api/quadratic","description":"Quadratic","params":["a","b","c"],"kind":"compute","tier":"yellow","category":"misc","example":{"a":1,"b":-3,"c":2}},{"name":"quarter_from_date","path":"/api/quarter-from-date","description":"Quarter From Date","params":["date"],"kind":"compute","tier":"yellow","category":"date","example":{"date":"2026-01-01"}},{"name":"querystring_to_json","path":"/api/querystring-to-json","description":"Querystring To Json","params":["querystring"],"kind":"compute","tier":"yellow","category":"data","example":{"querystring":"a=1&b=2"}},{"name":"random_bytes","path":"/api/random-bytes","description":"Random Bytes","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"random_color","path":"/api/random-color","description":"Random Color","params":["text"],"kind":"compute","tier":"yellow","category":"color","example":{"text":"Hello World"}},{"name":"random_number","path":"/api/random-number","description":"Random Number","params":["text"],"kind":"compute","tier":"yellow","category":"math","example":{"text":"Hello World"}},{"name":"random_string","path":"/api/random-string","description":"Random String","params":["text"],"kind":"compute","tier":"yellow","category":"generators","example":{"text":"Hello World"}},{"name":"ratio_simplify","path":"/api/ratio-simplify","description":"Ratio Simplify","params":["numerator","denominator"],"kind":"compute","tier":"yellow","category":"misc","example":{"numerator":1920,"denominator":1080}},{"name":"readability_score","path":"/api/readability-score","description":"Readability Score","params":["text"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World"}},{"name":"reading_time","path":"/api/reading-time","description":"Reading Time","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"regex_extract","path":"/api/regex-extract","description":"Regex Extract","params":["text","pattern"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World","pattern":"\\d+"}},{"name":"regex_generate","path":"/api/regex-generate","description":"Regex Generate","params":["examples"],"kind":"compute","tier":"yellow","category":"generators","example":{"examples":["abc123","def456"]}},{"name":"regex_replace","path":"/api/regex-replace","description":"Regex Replace","params":["text","pattern"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World","pattern":"\\d+"}},{"name":"regex_test","path":"/api/regex-test","description":"Regex Test","params":["pattern","text","flags"],"kind":"compute","tier":"yellow","category":"misc","example":{"pattern":"\\d+","text":"abc123def456","flags":"g"}},{"name":"relative_time","path":"/api/relative-time","description":"Relative Time","params":["date"],"kind":"compute","tier":"yellow","category":"date","example":{"date":"2026-10-11"}},{"name":"robots_check","path":"/api/robots-check","description":"Robots Check","params":["url","content"],"kind":"compute","tier":"yellow","category":"web","example":{"url":"https://example.com","content":"Hello World"}},{"name":"robots_generate","path":"/api/robots-generate","description":"Robots Generate","params":["domain"],"kind":"compute","tier":"yellow","category":"generators","example":{"domain":"example.com"}},{"name":"robots_validate","path":"/api/robots-validate","description":"Robots Validate","params":["content"],"kind":"compute","tier":"yellow","category":"date","example":{"content":"User-agent: *\nDisallow: /admin\nSitemap: https://example.com/sitemap.xml"}},{"name":"roi_calc","path":"/api/roi-calc","description":"Roi Calc","params":["investment","returnAmount"],"kind":"compute","tier":"yellow","category":"math","example":{"investment":"Hello World","returnAmount":"Hello World"}},{"name":"roman_numeral","path":"/api/roman-numeral","description":"Roman Numeral","params":["number","roman"],"kind":"compute","tier":"yellow","category":"math","example":{"number":42,"roman":"Hello World"}},{"name":"rot13","path":"/api/rot13","description":"Rot13","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello World"}},{"name":"rss_parse","path":"/api/rss-parse","description":"Rss Parse","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com/feed.xml"}},{"name":"sample_csv","path":"/api/sample-csv","description":"Sample Csv","params":["text"],"kind":"compute","tier":"yellow","category":"data","example":{"text":"Hello World"}},{"name":"security_headers","path":"/api/security-headers","description":"Security Headers","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"semver_compare","path":"/api/semver-compare","description":"Semver Compare","params":["v1","v2"],"kind":"compute","tier":"yellow","category":"misc","example":{"v1":"Hello World","v2":"Hello World"}},{"name":"semver_validate","path":"/api/semver-validate","description":"Semver Validate","params":["version"],"kind":"compute","tier":"yellow","category":"date","example":{"version":"1.2.3"}},{"name":"sentiment","path":"/api/sentiment","description":"Sentiment","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"shadow_css","path":"/api/shadow-css","description":"Shadow Css","params":["text"],"kind":"compute","tier":"yellow","category":"misc","example":{"text":"Hello World"}},{"name":"sitemap_generate","path":"/api/sitemap-generate","description":"Sitemap Generate","params":["urls"],"kind":"compute","tier":"yellow","category":"generators","example":{"urls":["https://example.com/","https://example.com/about"]}},{"name":"sitemap_parse","path":"/api/sitemap-parse","description":"Sitemap Parse","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"speed_convert","path":"/api/speed-convert","description":"Speed Convert","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"sql_dummy","path":"/api/sql-dummy","description":"Sql Dummy","params":["text"],"kind":"compute","tier":"yellow","category":"data","example":{"text":"Hello World"}},{"name":"sql_format","path":"/api/sql-format","description":"Sql Format","params":["sql"],"kind":"compute","tier":"yellow","category":"data","example":{"sql":"select * from users where id=1"}},{"name":"sri_hash","path":"/api/sri-hash","description":"Sri Hash","params":["url","content"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com","content":"Hello World"}},{"name":"ssl_check","path":"/api/ssl-check","description":"Ssl Check","params":["domain"],"kind":"network","tier":"orange","category":"network","example":{"domain":"example.com"}},{"name":"standard_deviation","path":"/api/standard-deviation","description":"Standard Deviation","params":["numbers"],"kind":"compute","tier":"yellow","category":"math","example":{"numbers":[3,1,4,1,5]}},{"name":"statistics","path":"/api/statistics","description":"Statistics","params":["numbers"],"kind":"compute","tier":"yellow","category":"math","example":{"numbers":[3,1,4,1,5]}},{"name":"string_char_at","path":"/api/string-char-at","description":"String Char At","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_contains","path":"/api/string-contains","description":"String Contains","params":["text","search"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World","search":"World"}},{"name":"string_count_chars","path":"/api/string-count-chars","description":"String Count Chars","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_ends_with","path":"/api/string-ends-with","description":"String Ends With","params":["text","suffix"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World","suffix":"-suf"}},{"name":"string_entropy","path":"/api/string-entropy","description":"String Entropy","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_escape","path":"/api/string-escape","description":"String Escape","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_hash","path":"/api/string-hash","description":"String Hash","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"string_interleave","path":"/api/string-interleave","description":"String Interleave","params":["text1","text2"],"kind":"compute","tier":"yellow","category":"text","example":{"text1":"hello world","text2":"hello there"}},{"name":"string_mask","path":"/api/string-mask","description":"String Mask","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_pad","path":"/api/string-pad","description":"String Pad","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_pad_multi","path":"/api/string-pad-multi","description":"String Pad Multi","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_repeat","path":"/api/string-repeat","description":"String Repeat","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_reverse_v2","path":"/api/string-reverse-v2","description":"String Reverse V2","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_rotate","path":"/api/string-rotate","description":"String Rotate","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_split_v2","path":"/api/string-split-v2","description":"String Split V2","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_starts_with","path":"/api/string-starts-with","description":"String Starts With","params":["text","prefix"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World","prefix":"pre-"}},{"name":"string_substring","path":"/api/string-substring","description":"String Substring","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"string_template","path":"/api/string-template","description":"String Template","params":["template","data"],"kind":"compute","tier":"yellow","category":"text","example":{"template":"Hello World","data":{"a":1,"b":{"c":2}}}},{"name":"string_wrap","path":"/api/string-wrap","description":"String Wrap","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"structured_data","path":"/api/structured-data","description":"Structured Data","params":["jsonld"],"kind":"compute","tier":"yellow","category":"misc","example":{"jsonld":"{\"@context\":\"https://schema.org\",\"@type\":\"Organization\",\"name\":\"Example\"}"}},{"name":"subnet_list","path":"/api/subnet-list","description":"Subnet List","params":["cidr"],"kind":"compute","tier":"yellow","category":"misc","example":{"cidr":"192.168.1.0/24"}},{"name":"swift_validate","path":"/api/swift-validate","description":"Swift Validate","params":["swift"],"kind":"compute","tier":"yellow","category":"date","example":{"swift":"DEUTDEFF"}},{"name":"tax_calc","path":"/api/tax-calc","description":"Tax Calc","params":["amount","rate"],"kind":"compute","tier":"yellow","category":"math","example":{"amount":1234000,"rate":5}},{"name":"tech_detect","path":"/api/tech-detect","description":"Tech Detect","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"temperature","path":"/api/temperature","description":"Temperature","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"text_between","path":"/api/text-between","description":"Text Between","params":["text","start","end"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World","start":"2026-01-01","end":"2026-12-31"}},{"name":"text_case_convert","path":"/api/text-case-convert","description":"Text Case Convert","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_char_count","path":"/api/text-char-count","description":"Text Char Count","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_clean_whitespace","path":"/api/text-clean-whitespace","description":"Text Clean Whitespace","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_columns","path":"/api/text-columns","description":"Text Columns","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_compare","path":"/api/text-compare","description":"Text Compare","params":["text1","text2"],"kind":"compute","tier":"yellow","category":"text","example":{"text1":"hello world","text2":"hello there"}},{"name":"text_count","path":"/api/text-count","description":"Text Count","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World, this is a test."}},{"name":"text_dedup_lines","path":"/api/text-dedup-lines","description":"Text Dedup Lines","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_dedupe","path":"/api/text-dedupe","description":"Text Dedupe","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_diff_words","path":"/api/text-diff-words","description":"Text Diff Words","params":["text1","text2"],"kind":"compute","tier":"yellow","category":"text","example":{"text1":"hello world","text2":"hello there"}},{"name":"text_encode_stats","path":"/api/text-encode-stats","description":"Text Encode Stats","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello World"}},{"name":"text_extract_dates","path":"/api/text-extract-dates","description":"Text Extract Dates","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_extract_emails","path":"/api/text-extract-emails","description":"Text Extract Emails","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_extract_hashtags","path":"/api/text-extract-hashtags","description":"Text Extract Hashtags","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"text_extract_mentions","path":"/api/text-extract-mentions","description":"Text Extract Mentions","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_extract_numbers","path":"/api/text-extract-numbers","description":"Text Extract Numbers","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_extract_urls","path":"/api/text-extract-urls","description":"Text Extract Urls","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_full_stats","path":"/api/text-full-stats","description":"Text Full Stats","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_highlight","path":"/api/text-highlight","description":"Text Highlight","params":["text","words"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World","words":["World"]}},{"name":"text_indent","path":"/api/text-indent","description":"Text Indent","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_join","path":"/api/text-join","description":"Text Join","params":["lines"],"kind":"compute","tier":"yellow","category":"text","example":{"lines":["a","b","c"]}},{"name":"text_line_numbers","path":"/api/text-line-numbers","description":"Text Line Numbers","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_lines","path":"/api/text-lines","description":"Text Lines","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_ngrams","path":"/api/text-ngrams","description":"Text Ngrams","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_normalize","path":"/api/text-normalize","description":"Text Normalize","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_number_lines","path":"/api/text-number-lines","description":"Text Number Lines","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_pad","path":"/api/text-pad","description":"Text Pad","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_prefix","path":"/api/text-prefix","description":"Text Prefix","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_remove_blank","path":"/api/text-remove-blank","description":"Text Remove Blank","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_remove_dup_words","path":"/api/text-remove-dup-words","description":"Text Remove Dup Words","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_remove_html","path":"/api/text-remove-html","description":"Text Remove Html","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_reverse","path":"/api/text-reverse","description":"Text Reverse","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_similarity","path":"/api/text-similarity","description":"Text Similarity","params":["text1","text2"],"kind":"compute","tier":"yellow","category":"text","example":{"text1":"hello world","text2":"hello there"}},{"name":"text_slug","path":"/api/text-slug","description":"Text Slug","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_sort_lines","path":"/api/text-sort-lines","description":"Text Sort Lines","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_stats","path":"/api/text-stats","description":"Text Stats","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_summarize_extractive","path":"/api/text-summarize-extractive","description":"Text Summarize Extractive","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_to_acronym","path":"/api/text-to-acronym","description":"Text To Acronym","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_to_base64url","path":"/api/text-to-base64url","description":"Text To Base64url","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello World"}},{"name":"text_to_json","path":"/api/text-to-json","description":"Text To JSON","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Alice\nBob\nCharlie"}},{"name":"text_to_list","path":"/api/text-to-list","description":"Text To List","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_to_markdown","path":"/api/text-to-markdown","description":"Text To Markdown","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_to_slug_v2","path":"/api/text-to-slug-v2","description":"Text To Slug V2","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_to_title","path":"/api/text-to-title","description":"Text To Title","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_truncate","path":"/api/text-truncate","description":"Text Truncate","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_unique","path":"/api/text-unique","description":"Text Unique","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_word_freq","path":"/api/text-word-freq","description":"Text Word Freq","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_wrap_lines","path":"/api/text-wrap-lines","description":"Text Wrap Lines","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"text_wrap_v2","path":"/api/text-wrap-v2","description":"Text Wrap V2","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"time_diff","path":"/api/time-diff","description":"Time Diff","params":["time1","time2"],"kind":"compute","tier":"yellow","category":"text","example":{"time1":"Hello World","time2":"Hello World"}},{"name":"time_zones","path":"/api/time-zones","description":"Time Zones","params":["text"],"kind":"compute","tier":"yellow","category":"date","example":{"text":"Hello World"}},{"name":"timestamp","path":"/api/timestamp","description":"Timestamp","params":["text"],"kind":"compute","tier":"yellow","category":"date","example":{"text":"Hello World"}},{"name":"timezone_convert","path":"/api/timezone-convert","description":"Timezone Convert","params":["time","from","to"],"kind":"compute","tier":"yellow","category":"date","example":{"time":"2026-10-12T09:00:00","from":"Asia/Seoul","to":"America/New_York"}},{"name":"timezone_list","path":"/api/timezone-list","description":"Timezone List","params":["date"],"kind":"compute","tier":"yellow","category":"date","example":{"date":"2026-10-11"}},{"name":"title_generator","path":"/api/title-generator","description":"Title Generator","params":["keyword"],"kind":"compute","tier":"yellow","category":"misc","example":{"keyword":"Hello World"}},{"name":"token_generate","path":"/api/token-generate","description":"Token Generate","params":["text"],"kind":"compute","tier":"yellow","category":"crypto","example":{"text":"Hello World"}},{"name":"toml_to_json","path":"/api/toml-to-json","description":"Toml To Json","params":["toml"],"kind":"compute","tier":"yellow","category":"data","example":{"toml":"[package]\nname = \"my-app\"\nversion = \"1.0\""}},{"name":"tsv_to_json","path":"/api/tsv-to-json","description":"Tsv To Json","params":["tsv"],"kind":"compute","tier":"yellow","category":"misc","example":{"tsv":"Hello World"}},{"name":"unicode_info","path":"/api/unicode-info","description":"Unicode Info","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello World"}},{"name":"unit_convert","path":"/api/unit-convert","description":"Unit Convert","params":["value","from","to"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":10,"from":"km","to":"mi"}},{"name":"unix_now","path":"/api/unix-now","description":"Unix Now","params":["text"],"kind":"compute","tier":"yellow","category":"date","example":{"text":"Hello World"}},{"name":"unix_timestamp","path":"/api/unix-timestamp","description":"Unix Timestamp","params":["text"],"kind":"compute","tier":"yellow","category":"date","example":{"text":"Hello World"}},{"name":"url_decode","path":"/api/url-decode","description":"Url Decode","params":["text"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"Hello World"}},{"name":"url_encode","path":"/api/url-encode","description":"Url Encode","params":["text","mode"],"kind":"compute","tier":"yellow","category":"encoding","example":{"text":"hello world","mode":"encode"}},{"name":"url_enrichment","path":"/api/url-enrichment","description":"Url Enrichment","params":["url"],"kind":"compute","tier":"yellow","category":"web","example":{"url":"https://example.com"}},{"name":"url_info","path":"/api/url-info","description":"Url Info","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"url_parse","path":"/api/url-parse","description":"Url Parse","params":["url"],"kind":"compute","tier":"yellow","category":"web","example":{"url":"https://example.com"}},{"name":"url_validate","path":"/api/url-validate","description":"Url Validate","params":["url"],"kind":"compute","tier":"yellow","category":"date","example":{"url":"https://example.com"}},{"name":"user_agent","path":"/api/user-agent","description":"User Agent","params":["text"],"kind":"compute","tier":"yellow","category":"date","example":{"text":"Hello World"}},{"name":"user_agent_generate","path":"/api/user-agent-generate","description":"User Agent Generate","params":["text"],"kind":"compute","tier":"yellow","category":"date","example":{"text":"Hello World"}},{"name":"username_generate","path":"/api/username-generate","description":"Username Generate","params":["text"],"kind":"compute","tier":"yellow","category":"generators","example":{"text":"Hello World"}},{"name":"uuid","path":"/api/uuid","description":"Uuid","params":[],"kind":"compute","tier":"yellow","category":"generators","example":{}},{"name":"uuid_batch","path":"/api/uuid-batch","description":"Uuid Batch","params":["text"],"kind":"compute","tier":"yellow","category":"generators","example":{"text":"Hello World"}},{"name":"uuid_parse","path":"/api/uuid-parse","description":"Uuid Parse","params":["uuid"],"kind":"compute","tier":"yellow","category":"generators","example":{"uuid":"550e8400-e29b-41d4-a716-446655440000"}},{"name":"uuid_v1","path":"/api/uuid-v1","description":"Uuid V1","params":["text"],"kind":"compute","tier":"yellow","category":"generators","example":{"text":"Hello World"}},{"name":"vat_validate","path":"/api/vat-validate","description":"Vat Validate","params":["vat"],"kind":"compute","tier":"yellow","category":"date","example":{"vat":"DE123456789"}},{"name":"volume_convert","path":"/api/volume-convert","description":"Volume Convert","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"web_fetch","path":"/api/web-fetch","description":"Web Fetch","params":["url"],"kind":"network","tier":"orange","category":"network","example":{"url":"https://example.com"}},{"name":"weight","path":"/api/weight","description":"Weight","params":["value"],"kind":"compute","tier":"yellow","category":"conversion","example":{"value":42}},{"name":"whois","path":"/api/whois","description":"Whois","params":["domain"],"kind":"network","tier":"orange","category":"network","example":{"domain":"example.com"}},{"name":"word_count","path":"/api/word-count","description":"Word Count","params":["text"],"kind":"compute","tier":"yellow","category":"text","example":{"text":"Hello World"}},{"name":"work_hours","path":"/api/work-hours","description":"Work Hours","params":["start","end"],"kind":"compute","tier":"yellow","category":"misc","example":{"start":"2026-01-01","end":"2026-12-31"}},{"name":"xml_format","path":"/api/xml-format","description":"Xml Format","params":["xml"],"kind":"compute","tier":"yellow","category":"data","example":{"xml":"<root><a>1</a></root>"}},{"name":"xml_to_json","path":"/api/xml-to-json","description":"Xml To Json","params":["xml"],"kind":"compute","tier":"yellow","category":"data","example":{"xml":"<root><item>hello</item></root>"}},{"name":"xml_to_text","path":"/api/xml-to-text","description":"Xml To Text","params":["xml"],"kind":"compute","tier":"yellow","category":"data","example":{"xml":"<root><a>1</a></root>"}},{"name":"xml_validate","path":"/api/xml-validate","description":"Xml Validate","params":["xml"],"kind":"compute","tier":"yellow","category":"data","example":{"xml":"<root><a>1</a></root>"}},{"name":"yaml_format","path":"/api/yaml-format","description":"Yaml Format","params":["yaml"],"kind":"compute","tier":"yellow","category":"data","example":{"yaml":"a: 1\nb: 2"}},{"name":"yaml_to_json","path":"/api/yaml-to-json","description":"Yaml To Json","params":["yaml"],"kind":"compute","tier":"yellow","category":"data","example":{"yaml":"name: test\nvalue: 123"}},{"name":"zip_validate","path":"/api/zip-validate","description":"Zip Validate","params":["zip"],"kind":"compute","tier":"yellow","category":"date","example":{"zip":"90210"}},{"name":"array_unzip","path":"/api/array-unzip","description":"Array Unzip","params":["array"],"kind":"compute","tier":"yellow","category":"array","example":{"array":[[1,"a"],[2,"b"],[3,"c"]]}},{"name":"json_to_text","path":"/api/json-to-text","description":"JSON To Text","params":["data"],"kind":"compute","tier":"yellow","category":"data","example":{"data":["line 1","line 2","line 3"]}}];
+
+const CATALOG_BY_NAME={};CATALOG.forEach(function(t){CATALOG_BY_NAME[t.name]=t;});
+// Meta tools (only these show in tools/list)
+const META_TOOLS=[
   {
-    name: 'hash_text',
-    description: 'Hash text using SHA-256, SHA-384, or SHA-512',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', description: 'Text to hash' },
-        algorithm: { type: 'string', enum: ['SHA-256', 'SHA-384', 'SHA-512'], default: 'SHA-256' }
-      },
-      required: ['text']
-    }
+    name:'search_tools',
+    title:'Search tools',annotations:{title:'Search tools',readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},description:'Search the API tool catalog by keyword. Returns matching tool names, descriptions, and parameters. Use this first to find the right tool.',
+    inputSchema:{type:'object',properties:{query:{type:'string',description:'Search keywords (e.g. "pdf merge", "sha256", "translate", "dns")'},category:{type:'string',description:'Optional filter: compute, network, file, ai, or a category id from list_categories'},limit:{type:'integer',description:'Max results (1-50, default 10)'}},required:['query']}
   },
   {
-    name: 'generate_uuid',
-    description: 'Generate a UUID v4',
-    inputSchema: { type: 'object', properties: {} }
+    name:'run_tool',
+    title:'Run a tool',annotations:{title:'Run a tool',readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+    description:'Execute any tool by name with arguments. Use search_tools first to find the tool name and required parameters.',
+    inputSchema:{type:'object',properties:{tool:{type:'string',description:'Tool name from search_tools (e.g. "hash_text", "pdf_merge", "web_fetch")'},arguments:{type:'object',description:'Tool arguments as key-value pairs'}},required:['tool','arguments']}
   },
   {
-    name: 'base64_encode',
-    description: 'Base64 encode text',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', description: 'Text to encode' }
-      },
-      required: ['text']
-    }
-  },
-  {
-    name: 'base64_decode',
-    description: 'Base64 decode string',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', description: 'Base64 string to decode' }
-      },
-      required: ['text']
-    }
-  },
-  {
-    name: 'json_format',
-    description: 'Pretty-print or minify JSON',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        json: { type: 'string', description: 'JSON string' },
-        indent: { type: 'number', default: 2, description: 'Indent spaces (0 for minify)' }
-      },
-      required: ['json']
-    }
-  },
-  {
-    name: 'url_encode',
-    description: 'URL encode text',
-    inputSchema: {
-      type: 'object',
-      properties: { text: { type: 'string' } },
-      required: ['text']
-    }
-  },
-  {
-    name: 'url_decode',
-    description: 'URL decode text',
-    inputSchema: {
-      type: 'object',
-      properties: { text: { type: 'string' } },
-      required: ['text']
-    }
-  },
-  {
-    name: 'text_diff',
-    description: 'Compare two texts and show differences',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        text1: { type: 'string', description: 'Original text' },
-        text2: { type: 'string', description: 'Modified text' }
-      },
-      required: ['text1', 'text2']
-    }
-  },
-  {
-    name: 'csv_to_json',
-    description: 'Convert CSV text to JSON array',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        csv: { type: 'string', description: 'CSV data with headers' },
-        delimiter: { type: 'string', default: ',' }
-      },
-      required: ['csv']
-    }
-  },
-  {
-    name: 'json_to_csv',
-    description: 'Convert JSON array to CSV',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        data: { type: 'array', description: 'Array of objects' }
-      },
-      required: ['data']
-    }
-  },
-  {
-    name: 'generate_qr',
-    description: 'Generate QR code as SVG',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', description: 'Text or URL to encode' },
-        size: { type: 'number', default: 300 }
-      },
-      required: ['text']
-    }
-  },
-  {
-    name: 'password_generate',
-    description: 'Generate a cryptographically secure password',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        length: { type: 'number', default: 16, description: '8-64 characters' },
-        uppercase: { type: 'boolean', default: true },
-        numbers: { type: 'boolean', default: true },
-        symbols: { type: 'boolean', default: true }
-      }
-    }
-  },
-  {
-    name: 'jwt_decode',
-    description: 'Decode a JWT token (header + payload)',
-    inputSchema: {
-      type: 'object',
-      properties: { token: { type: 'string' } },
-      required: ['token']
-    }
-  },
-  {
-    name: 'dns_lookup',
-    description: 'Look up DNS records for a domain',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        domain: { type: 'string' },
-        type: { type: 'string', enum: ['A', 'AAAA', 'MX', 'TXT', 'NS'], default: 'A' }
-      },
-      required: ['domain']
-    }
-  },
-  {
-    name: 'whois_lookup',
-    description: 'WHOIS domain registration info',
-    inputSchema: {
-      type: 'object',
-      properties: { domain: { type: 'string' } },
-      required: ['domain']
-    }
-  },
-  {
-    name: 'ip_info',
-    description: 'Get IP address and geolocation info',
-    inputSchema: { type: 'object', properties: {} }
-  },
-  {
-    name: 'date_calculate',
-    description: 'Calculate days between dates or add days to a date',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        date1: { type: 'string', description: 'Start date (ISO format)' },
-        date2: { type: 'string', description: 'End date (optional)' },
-        add: { type: 'number', description: 'Days to add (optional)' }
-      },
-      required: ['date1']
-    }
-  },
-  {
-    name: 'regex_test',
-    description: 'Test a regular expression against text',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        pattern: { type: 'string' },
-        text: { type: 'string' },
-        flags: { type: 'string', default: 'g' }
-      },
-      required: ['pattern', 'text']
-    }
-  },
-  {
-    name: 'color_convert',
-    description: 'Convert color between HEX, RGB, HSL formats',
-    inputSchema: {
-      type: 'object',
-      properties: { color: { type: 'string', description: 'Color in any format (#hex, rgb(), hsl())' } },
-      required: ['color']
-    }
-  },
-  {
-    name: 'markdown_to_html',
-    description: 'Convert Markdown to HTML',
-    inputSchema: {
-      type: 'object',
-      properties: { markdown: { type: 'string' } },
-      required: ['markdown']
-    }
-  },
-,
-  {name:'text_sentiment',description:'Analyze text sentiment (positive/negative/neutral)',inputSchema:{type:'object',properties:{text:{type:'string',description:'Text to analyze'}},required:['text']}},
-  {name:'keyword_extract',description:'Extract keywords with frequency from text',inputSchema:{type:'object',properties:{text:{type:'string'},count:{type:'number',default:10}},required:['text']}},
-  {name:'language_detect',description:'Detect language of text',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'word_count',description:'Count words, characters, sentences, paragraphs',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'text_stats',description:'Readability score (Flesch) and grade level',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'json_to_typescript',description:'Generate TypeScript interfaces from JSON',inputSchema:{type:'object',properties:{data:{type:'object'},name:{type:'string',default:'Root'}},required:['data']}},
-  {name:'json_to_python',description:'Generate Python dataclass from JSON',inputSchema:{type:'object',properties:{data:{type:'object'},name:{type:'string',default:'Root'}},required:['data']}},
-  {name:'sql_format',description:'Format/beautify SQL queries',inputSchema:{type:'object',properties:{sql:{type:'string'}},required:['sql']}},
-  {name:'html_minify',description:'Minify HTML removing whitespace and comments',inputSchema:{type:'object',properties:{html:{type:'string'}},required:['html']}},
-  {name:'json_validate',description:'Validate JSON and report errors with line numbers',inputSchema:{type:'object',properties:{json:{type:'string'}},required:['json']}},
-  {name:'unit_convert',description:'Convert between units (length, weight, speed, etc)',inputSchema:{type:'object',properties:{value:{type:'number'},from:{type:'string'},to:{type:'string'}},required:['value','from','to']}},
-  {name:'temperature_convert',description:'Convert between Celsius, Fahrenheit, Kelvin',inputSchema:{type:'object',properties:{value:{type:'number'},from:{type:'string',enum:['C','F','K']},to:{type:'string',enum:['C','F','K']}},required:['value','from','to']}},
-  {name:'number_to_words',description:'Convert number to English words',inputSchema:{type:'object',properties:{number:{type:'number'}},required:['number']}},
-  {name:'roman_numeral',description:'Convert between number and Roman numeral',inputSchema:{type:'object',properties:{number:{type:'number'},roman:{type:'string'}}}},
-  {name:'json_flatten',description:'Flatten nested JSON to dot-notation keys',inputSchema:{type:'object',properties:{data:{type:'object'}},required:['data']}},
-  {name:'password_strength',description:'Analyze password strength and entropy',inputSchema:{type:'object',properties:{password:{type:'string'}},required:['password']}},
-  {name:'aes_encrypt',description:'AES-256-GCM encrypt text with password',inputSchema:{type:'object',properties:{text:{type:'string'},password:{type:'string'}},required:['text','password']}},
-  {name:'aes_decrypt',description:'AES-256-GCM decrypt with password',inputSchema:{type:'object',properties:{encrypted:{type:'string'},password:{type:'string'}},required:['encrypted','password']}},
-  {name:'hmac_sign',description:'Generate HMAC-SHA256 signature',inputSchema:{type:'object',properties:{text:{type:'string'},key:{type:'string'}},required:['text','key']}},
-  {name:'otp_generate',description:'Generate TOTP secret and URI for authenticator apps',inputSchema:{type:'object',properties:{issuer:{type:'string',default:'ToolsHub'},account:{type:'string',default:'user@example.com'}}}},
-  {name:'http_status_info',description:'Get HTTP status code description and category',inputSchema:{type:'object',properties:{code:{type:'number'}},required:['code']}},
-  {name:'ssl_check',description:'Check SSL/TLS certificate of a domain',inputSchema:{type:'object',properties:{domain:{type:'string'}},required:['domain']}},
-  {name:'meta_extract',description:'Extract meta tags and Open Graph data from URL',inputSchema:{type:'object',properties:{url:{type:'string'}},required:['url']}},
-  {name:'link_check',description:'Check if URL is reachable and get response info',inputSchema:{type:'object',properties:{url:{type:'string'}},required:['url']}},
-  {name:'sitemap_generate',description:'Generate sitemap XML from list of URLs',inputSchema:{type:'object',properties:{urls:{type:'array',items:{type:'string'}}},required:['urls']}},
-  {name:'cron_parse',description:'Parse cron expression to human-readable description',inputSchema:{type:'object',properties:{cron:{type:'string'}},required:['cron']}},
-  {name:'cidr_calc',description:'Calculate CIDR subnet info (network, broadcast, hosts)',inputSchema:{type:'object',properties:{cidr:{type:'string'}},required:['cidr']}},
-  {name:'email_validate',description:'Validate email format and check disposable domains',inputSchema:{type:'object',properties:{email:{type:'string'}},required:['email']}},
-  {name:'xml_to_json',description:'Convert XML to JSON',inputSchema:{type:'object',properties:{xml:{type:'string'}},required:['xml']}},
-  {name:'yaml_to_json',description:'Convert YAML to JSON',inputSchema:{type:'object',properties:{yaml:{type:'string'}},required:['yaml']}}
-,
-  {name:'text_case',description:'Convert text case (upper/lower/title/camel/snake/kebab)',inputSchema:{type:'object',properties:{text:{type:'string'},case:{type:'string',enum:['upper','lower','title','camel','snake','kebab']}},required:['text','case']}},
-  {name:'text_reverse',description:'Reverse text characters',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'text_slug',description:'Generate URL slug from text',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'text_truncate',description:'Smart truncate text at word boundary',inputSchema:{type:'object',properties:{text:{type:'string'},maxLength:{type:'number',default:100}},required:['text']}},
-  {name:'text_dedupe',description:'Remove duplicate lines',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'url_encode',description:'URL encode text',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'url_decode',description:'URL decode text',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'html_entities_encode',description:'Encode HTML entities',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'rot13',description:'ROT13 cipher',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'morse_encode',description:'Text to Morse code',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'json_to_csv',description:'Convert JSON array to CSV',inputSchema:{type:'object',properties:{data:{type:'array'}},required:['data']}},
-  {name:'json_diff',description:'Compare two JSON objects',inputSchema:{type:'object',properties:{obj1:{type:'object'},obj2:{type:'object'}},required:['obj1','obj2']}},
-  {name:'json_to_yaml',description:'Convert JSON to YAML',inputSchema:{type:'object',properties:{data:{type:'object'}},required:['data']}},
-  {name:'json_sort_keys',description:'Sort JSON keys alphabetically',inputSchema:{type:'object',properties:{data:{type:'object'}},required:['data']}},
-  {name:'json_to_go',description:'Generate Go struct from JSON',inputSchema:{type:'object',properties:{data:{type:'object'},name:{type:'string',default:'Root'}},required:['data']}},
-  {name:'math_factorial',description:'Calculate factorial',inputSchema:{type:'object',properties:{n:{type:'number'}},required:['n']}},
-  {name:'math_gcd',description:'Greatest common divisor',inputSchema:{type:'object',properties:{a:{type:'number'},b:{type:'number'}},required:['a','b']}},
-  {name:'math_percentage',description:'Percentage calculations',inputSchema:{type:'object',properties:{value:{type:'number'},total:{type:'number'}},required:['value','total']}},
-  {name:'math_fibonacci',description:'Generate Fibonacci sequence',inputSchema:{type:'object',properties:{n:{type:'number',default:10}},required:['n']}},
-  {name:'math_is_prime',description:'Check if number is prime',inputSchema:{type:'object',properties:{number:{type:'number'}},required:['number']}},
-  {name:'iban_validate',description:'Validate IBAN bank account number',inputSchema:{type:'object',properties:{iban:{type:'string'}},required:['iban']}},
-  {name:'credit_card_validate',description:'Validate credit card number (Luhn)',inputSchema:{type:'object',properties:{number:{type:'string'}},required:['number']}},
-  {name:'ip_validate',description:'Validate IPv4/IPv6 address',inputSchema:{type:'object',properties:{ip:{type:'string'}},required:['ip']}},
-  {name:'url_validate',description:'Validate URL format',inputSchema:{type:'object',properties:{url:{type:'string'}},required:['url']}},
-  {name:'phone_validate',description:'Validate phone number format',inputSchema:{type:'object',properties:{phone:{type:'string'}},required:['phone']}},
-  {name:'dns_lookup',description:'DNS record lookup',inputSchema:{type:'object',properties:{domain:{type:'string'},type:{type:'string',default:'A'}},required:['domain']}},
-  {name:'whois_lookup',description:'Domain WHOIS info',inputSchema:{type:'object',properties:{domain:{type:'string'}},required:['domain']}},
-  {name:'robots_check',description:'Check robots.txt rules',inputSchema:{type:'object',properties:{content:{type:'string'},path:{type:'string',default:'/'}},required:['content']}},
-  {name:'meta_generate',description:'Generate HTML meta tags',inputSchema:{type:'object',properties:{title:{type:'string'},description:{type:'string'}},required:['title']}},
-  {name:'robots_generate',description:'Generate robots.txt',inputSchema:{type:'object',properties:{sitemap:{type:'string'},disallow:{type:'array'}},required:[]}},
-  {name:'date_format',description:'Format date in various formats',inputSchema:{type:'object',properties:{date:{type:'string'}},required:['date']}},
-  {name:'business_days',description:'Count business days between dates',inputSchema:{type:'object',properties:{start:{type:'string'},end:{type:'string'}},required:['start','end']}},
-  {name:'age_calc',description:'Calculate age from birthdate',inputSchema:{type:'object',properties:{birthdate:{type:'string'}},required:['birthdate']}},
-  {name:'timezone_convert',description:'Convert time between timezones',inputSchema:{type:'object',properties:{time:{type:'string'},from:{type:'string',default:'UTC'},to:{type:'string',default:'Asia/Seoul'}},required:['time']}},
-  {name:'relative_time',description:'Human-readable relative time',inputSchema:{type:'object',properties:{date:{type:'string'}},required:['date']}},
-  {name:'color_blend',description:'Blend two colors',inputSchema:{type:'object',properties:{color1:{type:'string'},color2:{type:'string'},ratio:{type:'number',default:0.5}},required:['color1','color2']}},
-  {name:'color_contrast',description:'WCAG contrast ratio',inputSchema:{type:'object',properties:{foreground:{type:'string'},background:{type:'string'}},required:['foreground','background']}},
-  {name:'color_palette',description:'Generate color palette',inputSchema:{type:'object',properties:{hex:{type:'string'},scheme:{type:'string',default:'complementary'}},required:['hex']}},
-  {name:'json_to_rust',description:'Generate Rust struct from JSON',inputSchema:{type:'object',properties:{data:{type:'object'},name:{type:'string',default:'Root'}},required:['data']}},
-  {name:'json_to_kotlin',description:'Generate Kotlin data class',inputSchema:{type:'object',properties:{data:{type:'object'},name:{type:'string',default:'Root'}},required:['data']}},
-  {name:'json_to_java',description:'Generate Java POJO',inputSchema:{type:'object',properties:{data:{type:'object'},name:{type:'string',default:'Root'}},required:['data']}},
-  {name:'json_to_csharp',description:'Generate C# class',inputSchema:{type:'object',properties:{data:{type:'object'},name:{type:'string',default:'Root'}},required:['data']}},
-  {name:'json_to_sql_create',description:'Generate SQL CREATE TABLE',inputSchema:{type:'object',properties:{data:{type:'object'},table:{type:'string',default:'my_table'}},required:['data']}},
-  {name:'fake_data',description:'Generate fake names, emails, phones',inputSchema:{type:'object',properties:{count:{type:'number',default:5}}}},
-  {name:'uuid_batch',description:'Generate multiple UUIDs',inputSchema:{type:'object',properties:{count:{type:'number',default:10}}}},
-  {name:'lorem_ipsum',description:'Generate placeholder text',inputSchema:{type:'object',properties:{paragraphs:{type:'number',default:3}}}},
-  {name:'barcode_generate',description:'Generate Code128 barcode SVG',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}},
-  {name:'avatar_generate',description:'Generate SVG avatar from text',inputSchema:{type:'object',properties:{text:{type:'string'},size:{type:'number',default:100}},required:['text']}},
-  {name:'hashtag_generate',description:'Generate hashtags from text',inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text']}}
+    name:'list_categories',
+    title:'List categories',annotations:{title:'List categories',readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+    description:'List all tool categories with counts. Use to browse available tools.',
+    inputSchema:{type:'object',properties:{}}
+  }
 ];
 
-// Tool execution: proxy to the hub API
-async function executeTool(name, args) {
-  const BASE = 'https://toolsthatdontupload.com';
-  
-  // Map MCP tool names to API endpoints
-  const mapping = {
-    hash_text: { path: '/api/hash', method: 'POST', body: args },
-    generate_uuid: { path: '/api/uuid', method: 'GET' },
-    base64_encode: { path: '/api/base64', method: 'POST', body: { text: args.text, mode: 'encode' } },
-    base64_decode: { path: '/api/base64', method: 'POST', body: { text: args.text, mode: 'decode' } },
-    json_format: { path: '/api/json-format', method: 'POST', body: args },
-    url_encode: { path: '/api/url-encode', method: 'POST', body: args },
-    url_decode: { path: '/api/url-decode', method: 'POST', body: args },
-    text_diff: { path: '/api/diff', method: 'POST', body: args },
-    csv_to_json: { path: '/api/csv-to-json', method: 'POST', body: args },
-    json_to_csv: { path: '/api/json-to-csv', method: 'POST', body: args },
-    generate_qr: { path: '/api/qr?text=' + encodeURIComponent(args.text || '') + '&size=' + (args.size || 300), method: 'GET' },
-    password_generate: { path: '/api/password-gen', method: 'POST', body: args },
-    jwt_decode: { path: '/api/jwt-decode', method: 'POST', body: args },
-    dns_lookup: { path: '/api/dns-lookup', method: 'POST', body: args },
-    whois_lookup: { path: '/api/whois', method: 'POST', body: args },
-    ip_info: { path: '/api/ip-info', method: 'GET' },
-    date_calculate: { path: '/api/date-calc', method: 'POST', body: args },
-    regex_test: { path: '/api/regex-test', method: 'POST', body: args },
-    color_convert: { path: '/api/color-convert', method: 'POST', body: args },
-    markdown_to_html: { path: '/api/markdown-to-html', method: 'POST', body: args },
-    text_sentiment: { path: '/api/sentiment', method: 'POST', body: args },
-    keyword_extract: { path: '/api/keyword-extract', method: 'POST', body: args },
-    language_detect: { path: '/api/language-detect', method: 'POST', body: args },
-    word_count: { path: '/api/word-count', method: 'POST', body: args },
-    text_stats: { path: '/api/text-stats', method: 'POST', body: args },
-    json_to_typescript: { path: '/api/json-to-typescript', method: 'POST', body: args },
-    json_to_python: { path: '/api/json-to-python', method: 'POST', body: args },
-    sql_format: { path: '/api/sql-format', method: 'POST', body: args },
-    html_minify: { path: '/api/html-minify', method: 'POST', body: args },
-    json_validate: { path: '/api/json-validate', method: 'POST', body: args },
-    unit_convert: { path: '/api/unit-convert', method: 'POST', body: args },
-    temperature_convert: { path: '/api/temperature', method: 'POST', body: args },
-    number_to_words: { path: '/api/number-to-words', method: 'POST', body: args },
-    roman_numeral: { path: '/api/roman-numeral', method: 'POST', body: args },
-    json_flatten: { path: '/api/json-flatten', method: 'POST', body: args },
-    password_strength: { path: '/api/password-strength', method: 'POST', body: args },
-    aes_encrypt: { path: '/api/aes-encrypt', method: 'POST', body: args },
-    aes_decrypt: { path: '/api/aes-decrypt', method: 'POST', body: args },
-    hmac_sign: { path: '/api/hmac', method: 'POST', body: args },
-    otp_generate: { path: '/api/otp-generate', method: 'POST', body: args },
-    http_status_info: { path: '/api/http-status', method: 'POST', body: args },
-    ssl_check: { path: '/api/ssl-check', method: 'POST', body: args },
-    meta_extract: { path: '/api/meta-extract', method: 'POST', body: args },
-    link_check: { path: '/api/link-check', method: 'POST', body: args },
-    sitemap_generate: { path: '/api/sitemap-generate', method: 'POST', body: args },
-    cron_parse: { path: '/api/cron-parse', method: 'POST', body: args },
-    cidr_calc: { path: '/api/cidr-calc', method: 'POST', body: args },
-    email_validate: { path: '/api/email-validate', method: 'POST', body: args },
-    xml_to_json: { path: '/api/xml-to-json', method: 'POST', body: args },
-    yaml_to_json: { path: '/api/yaml-to-json', method: 'POST', body: args },
+const CATEGORY_LABELS={"ai":"AI (Cloudflare Workers AI)","network":"Network (fetches external URLs, key required)","pdf":"PDF","image":"Image & graphics","crypto":"Hashing & crypto","encoding":"Encoding","data":"JSON, CSV, YAML, XML","array":"Arrays & objects","text":"Text & Markdown","math":"Math & finance","date":"Date & time","validation":"Validation","color":"Color","conversion":"Unit conversion","generators":"Generators","web":"Web & HTTP utilities (offline)","misc":"Miscellaneous"};
+const CATEGORIES={};CATALOG.forEach(function(t){var c=CATEGORIES[t.category]||(CATEGORIES[t.category]={label:CATEGORY_LABELS[t.category]||t.category,count:0,examples:[]});c.count++;if(c.examples.length<5)c.examples.push(t.name);});
 
-  };
+const SUPPORTED_PROTOCOLS=['2025-06-18','2025-03-26','2024-11-05'];
+const SERVER_INFO={protocolVersion:'2025-06-18',capabilities:{tools:{listChanged:false},resources:{subscribe:false,listChanged:false},prompts:{listChanged:false}},serverInfo:{name:'tools-that-dont-upload',title:"Tools That Don't Upload",version:'1.5.0'},instructions:'Use search_tools to find a tool, then run_tool with its name and arguments. Network tools need an X-API-Key header; if a key is missing, tell the user they can create one at https://toolsthatdontupload.com/api-keys/.'};
 
-
-  // Inline implementations for tools not on hub Pages Function
-  if (name === 'text_sentiment') {
-    const pos=['good','great','excellent','amazing','wonderful','love','happy','best','awesome','perfect'];
-    const neg=['bad','terrible','awful','horrible','worst','hate','ugly','poor'];
-    const words=String(args.text||'').toLowerCase().split(/\W+/);
-    let score=0;const found={positive:[],negative:[]};
-    words.forEach(w=>{if(pos.includes(w)){score++;found.positive.push(w);}if(neg.includes(w)){score--;found.negative.push(w);}});
-    return{score,sentiment:score>0?'positive':score<0?'negative':'neutral',words:found};
-  }
-  if (name === 'keyword_extract') {
-    const stops=new Set(['the','a','an','is','are','was','were','be','to','of','in','for','on','with','at','by','from','as','and','or','but','not','this','that','it']);
-    const words=String(args.text||'').toLowerCase().match(/\b[a-z]{3,}\b/g)||[];
-    const freq={};words.forEach(w=>{if(!stops.has(w))freq[w]=(freq[w]||0)+1;});
-    const sorted=Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,args.count||10);
-    return{keywords:sorted.map(x=>({word:x[0],count:x[1]}))};
-  }
-  if (name === 'language_detect') {
-    const t=String(args.text||'');
-    const ko=/[가-힣]/.test(t)?'ko':null;const ja=/[ぁ-んァ-ン]/.test(t)?'ja':null;
-    const zh=/[一-龥]/.test(t)?'zh':null;const en=/[a-zA-Z]/.test(t)?'en':null;
-    return{language:ko||ja||zh||en||'unknown',text:t.substring(0,50)};
-  }
-  if (name === 'word_count') {
-    const t=String(args.text||'');
-    return{characters:t.length,words:t.split(/\s+/).filter(Boolean).length,sentences:t.split(/[.!?]+/).filter(s=>s.trim()).length,lines:t.split('\n').length};
-  }
-  if (name === 'text_stats') {
-    const t=String(args.text||'');const words=t.match(/\b\w+\b/g)||[];const sents=t.split(/[.!?]+/).filter(s=>s.trim());
-    const asl=words.length/Math.max(sents.length,1);
-    const flesch=206.835-1.015*asl-84.6*1.5;
-    return{words:words.length,sentences:sents.length,fleschReadingEase:Math.round(flesch),avgWordsPerSentence:Math.round(asl*10)/10};
-  }
-  if (name === 'json_to_typescript') {
-    const n=args.name||'Root';const lines=['interface '+n+' {'];
-    for(const[k,v] of Object.entries(args.data||{})){let t=typeof v==='string'?'string':typeof v==='number'?(Number.isInteger(v)?'number':'number'):typeof v==='boolean'?'boolean':'any';lines.push('  '+k+': '+t+';');}
-    lines.push('}');return{typescript:lines.join('\n')};
-  }
-  if (name === 'json_to_python') {
-    const n=args.name||'Root';const lines=['from dataclasses import dataclass','','@dataclass','class '+n+':'];
-    for(const[k,v] of Object.entries(args.data||{})){let t=typeof v==='string'?'str':typeof v==='number'?'int':'str';lines.push('    '+k+': '+t);}
-    return{python:lines.join('\n')};
-  }
-  if (name === 'sql_format') {
-    let f=String(args.sql||'').replace(/\bSELECT\b/gi,'\nSELECT').replace(/\bFROM\b/gi,'\nFROM').replace(/\bWHERE\b/gi,'\nWHERE').replace(/\bORDER BY\b/gi,'\nORDER BY').replace(/\bGROUP BY\b/gi,'\nGROUP BY').trim();
-    return{formatted:f};
-  }
-  if (name === 'html_minify') {
-    const r=String(args.html||'').replace(/<!--[\s\S]*?-->/g,'').replace(/\s+/g,' ').replace(/> </g,'><').trim();
-    return{result:r,savings:Math.round((1-r.length/args.html.length)*100)+'%'};
-  }
-  if (name === 'json_validate') {
-    try{JSON.parse(typeof args.json==='string'?args.json:JSON.stringify(args.json));return{valid:true};}
-    catch(e){return{valid:false,error:e.message};}
-  }
-  if (name === 'unit_convert') {
-    const toM={km:1000,m:1,cm:0.01,mm:0.001,mi:1609.344,ft:0.3048,in:0.0254,yd:0.9144,kg:1,g:0.001,lb:0.453592,oz:0.0283495};
-    const f=toM[args.from],t=toM[args.to];
-    if(!f||!t)return{error:'Unknown units'};
-    return{result:Math.round(args.value*f/t*1e6)/1e6,from:args.from,to:args.to};
-  }
-  if (name === 'temperature_convert') {
-    let c=args.from==='C'?args.value:args.from==='F'?(args.value-32)*5/9:args.value-273.15;
-    let r=args.to==='C'?c:args.to==='F'?c*9/5+32:c+273.15;
-    return{result:Math.round(r*100)/100,from:args.from,to:args.to};
-  }
-  if (name === 'number_to_words') {
-    const ones=['','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
-    const tens=['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
-    function c(n){if(n<20)return ones[n];if(n<100)return tens[Math.floor(n/10)]+(n%10?' '+ones[n%10]:'');if(n<1000)return ones[Math.floor(n/100)]+' hundred'+(n%100?' '+c(n%100):'');if(n<1e6)return c(Math.floor(n/1000))+' thousand'+(n%1000?', '+c(n%1000):'');return String(n);}
-    return{words:c(Math.abs(args.number||0)),number:args.number};
-  }
-  if (name === 'roman_numeral') {
-    if(args.number){let n=args.number;const v=[[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];let r='';v.forEach(x=>{while(n>=x[0]){r+=x[1];n-=x[0];}});return{roman:r};}
-    return{error:'number required'};
-  }
-  if (name === 'json_flatten') {
-    const r={};function f(o,p){for(const[k,v] of Object.entries(o||{})){const key=p?p+'.'+k:k;if(v&&typeof v==='object'&&!Array.isArray(v))f(v,key);else r[key]=v;}}f(args.data,'');return{result:r};
-  }
-  if (name === 'password_strength') {
-    const p=String(args.password||'');let s=0;if(p.length>=8)s++;if(p.length>=12)s++;if(/[a-z]/.test(p)&&/[A-Z]/.test(p))s++;if(/\d/.test(p))s++;if(/[^a-zA-Z0-9]/.test(p))s++;
-    return{score:s,maxScore:5,level:['Very Weak','Weak','Fair','Good','Strong','Very Strong'][s],length:p.length};
-  }
-  if (name === 'hmac_sign') {
-    const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(args.key||''),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-    const sig=await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(args.text||''));
-    return{hmac:Array.from(new Uint8Array(sig)).map(x=>x.toString(16).padStart(2,'0')).join('')};
-  }
-  if (name === 'otp_generate') {
-    const secret=new Uint8Array(20);crypto.getRandomValues(secret);const b32='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let s='',bits=0,val=0;
-    for(const byte of secret){val=(val<<8)|byte;bits+=8;while(bits>=5){bits-=5;s+=b32[(val>>bits)&31];}}
-    return{secret:s,uri:'otpauth://totp/'+(args.issuer||'ToolsHub')+':'+(args.account||'user')+'?secret='+s};
-  }
-  if (name === 'http_status_info') {
-    const codes={200:'OK',201:'Created',301:'Moved Permanently',302:'Found',400:'Bad Request',401:'Unauthorized',403:'Forbidden',404:'Not Found',429:'Too Many Requests',500:'Internal Server Error',502:'Bad Gateway',503:'Service Unavailable'};
-    const c=args.code||200;return{code:c,message:codes[c]||'Unknown',category:c<200?'Info':c<300?'Success':c<400?'Redirect':c<500?'Client Error':'Server Error'};
-  }
-  if (name === 'cron_parse') {
-    const p=(args.cron||'').trim().split(/\s+/);if(p.length<5)return{error:'Need 5 fields'};
-    return{fields:{minute:p[0],hour:p[1],dayOfMonth:p[2],month:p[3],dayOfWeek:p[4]}};
-  }
-  if (name === 'cidr_calc') {
-    const m=String(args.cidr||'').match(/^(\d+\.\d+\.\d+\.\d+)\/(\d+)$/);if(!m)return{error:'Invalid CIDR'};
-    const ip=m[1].split('.').map(Number);const prefix=parseInt(m[2]);
-    const ipNum=(ip[0]<<24|ip[1]<<16|ip[2]<<8|ip[3])>>>0;
-    const mask=prefix===0?0:(~0<<(32-prefix))>>>0;const net=(ipNum&mask)>>>0;const bc=(net|~mask)>>>0;
-    const toIP=n=>[(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n&255].join('.');
-    return{network:toIP(net),broadcast:toIP(bc),hosts:Math.pow(2,32-prefix)-2,netmask:toIP(mask)};
-  }
-  if (name === 'email_validate') {
-    const e=String(args.email||'');const valid=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-    return{valid,email:e,domain:e.split('@')[1]||null};
-  }
-
-  if(name==='text_case'){const cases={upper:t=>t.toUpperCase(),lower:t=>t.toLowerCase(),title:t=>t.replace(/\b\w/g,c=>c.toUpperCase()),camel:t=>t.replace(/[^a-zA-Z0-9]+(.)/g,(m,c)=>c.toUpperCase()).replace(/^./,c=>c.toLowerCase()),snake:t=>t.toLowerCase().replace(/[^a-z0-9]+/g,'_'),kebab:t=>t.toLowerCase().replace(/[^a-z0-9]+/g,'-')};return{result:(cases[args.case]||cases.upper)(String(args.text))};}
-  if(name==='text_reverse')return{result:[...String(args.text)].reverse().join('')};
-  if(name==='text_slug')return{slug:String(args.text).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')};
-  if(name==='text_truncate'){const t=String(args.text),m=args.maxLength||100;if(t.length<=m)return{result:t,truncated:false};const c=t.substring(0,m);const ls=c.lastIndexOf(' ');return{result:(ls>m*0.3?c.substring(0,ls):c)+'...',truncated:true};}
-  if(name==='text_dedupe'){const lines=String(args.text).split('\n');const u=[...new Set(lines)];return{result:u.join('\n'),removed:lines.length-u.length};}
-  if(name==='url_encode')return{result:encodeURIComponent(String(args.text))};
-  if(name==='url_decode')return{result:decodeURIComponent(String(args.text))};
-  if(name==='html_entities_encode')return{result:String(args.text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')};
-  if(name==='rot13')return{result:String(args.text).replace(/[a-zA-Z]/g,c=>{const b=c<='Z'?65:97;return String.fromCharCode((c.charCodeAt(0)-b+13)%26+b);})};
-  if(name==='morse_encode'){const m2={'A':'.-','B':'-...','C':'-.-.','D':'-..','E':'.','F':'..-.','G':'--.','H':'....','I':'..','J':'.---','K':'-.-','L':'.-..','M':'--','N':'-.','O':'---','P':'.--.','Q':'--.-','R':'.-.','S':'...','T':'-','U':'..-','V':'...-','W':'.--','X':'-..-','Y':'-.--','Z':'--..'};return{result:String(args.text).toUpperCase().split('').map(c=>c===' '?'/':m2[c]||c).join(' ')};}
-  if(name==='json_to_csv'){const arr=args.data;if(!Array.isArray(arr)||!arr.length)return{csv:''};const k=Object.keys(arr[0]);return{csv:k.join(',')+' \n'+arr.map(r=>k.map(k2=>JSON.stringify(r[k2]??'')).join(',')).join('\n')};}
-  if(name==='json_diff'){const a2={},r2={},c2={};for(const k in args.obj2){if(!(k in args.obj1))a2[k]=args.obj2[k];else if(JSON.stringify(args.obj1[k])!==JSON.stringify(args.obj2[k]))c2[k]={from:args.obj1[k],to:args.obj2[k]};}for(const k in args.obj1){if(!(k in args.obj2))r2[k]=args.obj1[k];}return{added:a2,removed:r2,changed:c2};}
-  if(name==='json_to_yaml'){function toY(o,i){const sp='  '.repeat(i||0);let r='';for(const k in o){if(typeof o[k]==='object'&&o[k]!==null&&!Array.isArray(o[k])){r+=sp+k+':\n'+toY(o[k],(i||0)+1);}else if(Array.isArray(o[k])){r+=sp+k+':\n';o[k].forEach(item=>{r+=sp+'  - '+JSON.stringify(item)+'\n';});}else{r+=sp+k+': '+JSON.stringify(o[k])+'\n';}}return r;}return{yaml:toY(args.data,0)};}
-  if(name==='json_sort_keys'){function sortObj(o){if(Array.isArray(o))return o.map(sortObj);if(o&&typeof o==='object'){const s={};Object.keys(o).sort().forEach(k=>{s[k]=sortObj(o[k]);});return s;}return o;}return{result:sortObj(args.data)};}
-  if(name==='json_to_go'){const n=args.name||'Root';const lines=['type '+n+' struct {'];for(const[k,v] of Object.entries(args.data||{})){const t=typeof v==='string'?'string':typeof v==='number'?'int':'interface{}';lines.push('    '+k.charAt(0).toUpperCase()+k.slice(1)+' '+t+' `json:"'+k+'"`');}lines.push('}');return{go:lines.join('\n')};}
-  if(name==='math_factorial'){let r=1;for(let i=2;i<=Math.min(args.n,170);i++)r*=i;return{factorial:r};}
-  if(name==='math_gcd'){function gcd(a,b){return b===0?a:gcd(b,a%b);}const g=gcd(Math.abs(args.a),Math.abs(args.b));return{gcd:g,lcm:Math.abs(args.a*args.b)/g};}
-  if(name==='math_percentage')return{result:Math.round(args.value/args.total*10000)/100};
-  if(name==='math_fibonacci'){const f=[0,1];for(let i=2;i<Math.min(args.n||10,100);i++)f.push(f[i-1]+f[i-2]);return{sequence:f};}
-  if(name==='math_is_prime'){const n=args.number;if(n<2)return{isPrime:false};for(let i=2;i<=Math.sqrt(n);i++){if(n%i===0)return{isPrime:false,factor:i};}return{isPrime:true};}
-  if(name==='iban_validate'){const c=String(args.iban).replace(/[\s-]/g,'').toUpperCase();const rear=c.substring(4)+c.substring(0,4);let num='';for(const ch of rear){num+=/[A-Z]/.test(ch)?(ch.charCodeAt(0)-55).toString():ch;}let rem=0n;for(let i=0;i<num.length;i+=7){rem=BigInt(rem.toString()+num.substring(i,i+7))%97n;}return{valid:rem===1n,country:c.substring(0,2)};}
-  if(name==='credit_card_validate'){const c=String(args.number).replace(/[\s-]/g,'');let s=0,d=false;for(let i=c.length-1;i>=0;i--){let n=parseInt(c[i]);if(d){n*=2;if(n>9)n-=9;}s+=n;d=!d;}let issuer='Unknown';if(/^4/.test(c))issuer='Visa';else if(/^5[1-5]/.test(c))issuer='Mastercard';else if(/^3[47]/.test(c))issuer='Amex';return{valid:s%10===0,issuer};}
-  if(name==='ip_validate'){const v4=/^(\d{1,3}\.){3}\d{1,3}$/.test(args.ip)&&args.ip.split('.').every(n=>parseInt(n)<=255);return{valid:v4,version:v4?4:null};}
-  if(name==='url_validate'){try{new URL(args.url);return{valid:true};}catch{return{valid:false};}}
-  if(name==='phone_validate'){const c=String(args.phone).replace(/[\s\-().]/g,'');return{valid:/^\+?\d{7,15}$/.test(c),digits:c.replace(/[^0-9]/g,'').length};}
-  if(name==='robots_check'){const lines=String(args.content).split('\n');let allowed=true;lines.forEach(l=>{const m=l.match(/^(Disallow|Allow):\s*(.*)/i);if(m){if(m[1].toLowerCase()==='disallow'&&m[2]&&(args.path||'/').startsWith(m[2].trim()))allowed=false;if(m[1].toLowerCase()==='allow'&&m[2]&&(args.path||'/').startsWith(m[2].trim()))allowed=true;}});return{path:args.path||'/',allowed};}
-  if(name==='meta_generate'){return{html:'<title>'+args.title+'</title>\n<meta name="description" content="'+(args.description||'')+'">\n<meta property="og:title" content="'+args.title+'">'};}
-  if(name==='robots_generate'){let r='User-agent: *\n';(args.disallow||[]).forEach(p=>{r+='Disallow: '+p+'\n';});if(args.sitemap)r+='\nSitemap: '+args.sitemap;return{robotsTxt:r};}
-  if(name==='date_format'){const d=new Date(args.date);return{iso:d.toISOString(),us:(d.getMonth()+1)+'/'+d.getDate()+'/'+d.getFullYear(),eu:d.getDate()+'/'+(d.getMonth()+1)+'/'+d.getFullYear(),unix:Math.floor(d.getTime()/1000)};}
-  if(name==='business_days'){const s=new Date(args.start),e=new Date(args.end);let c=0,cur=new Date(s);while(cur<=e){if(cur.getDay()!==0&&cur.getDay()!==6)c++;cur.setDate(cur.getDate()+1);}return{businessDays:c};}
-  if(name==='age_calc'){const bd=new Date(args.birthdate),now=new Date();let y=now.getFullYear()-bd.getFullYear();if(now.getMonth()<bd.getMonth()||(now.getMonth()===bd.getMonth()&&now.getDate()<bd.getDate()))y--;return{years:y};}
-  if(name==='timezone_convert'){const d=new Date(args.time);return{from:{timezone:args.from||'UTC',time:d.toLocaleString('en-US',{timeZone:args.from||'UTC',hour12:false})},to:{timezone:args.to||'Asia/Seoul',time:d.toLocaleString('en-US',{timeZone:args.to||'Asia/Seoul',hour12:false})}};}
-  if(name==='relative_time'){const d=new Date(args.date);const diff=Date.now()-d.getTime();const abs=Math.abs(diff);const ago=diff>0;if(abs<60000)return{text:'just now'};if(abs<3600000)return{text:Math.floor(abs/60000)+' min '+(ago?'ago':'from now')};if(abs<86400000)return{text:Math.floor(abs/3600000)+' hours '+(ago?'ago':'from now')};return{text:Math.floor(abs/86400000)+' days '+(ago?'ago':'from now')};}
-  if(name==='color_blend'){const p=c=>{const h=c.replace('#','');return[parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)];};const[r1,g1,b1]=p(args.color1),[r2,g2,b2]=p(args.color2);const r=args.ratio||0.5;return{result:'#'+[Math.round(r1+(r2-r1)*r),Math.round(g1+(g2-g1)*r),Math.round(b1+(b2-b1)*r)].map(x=>x.toString(16).padStart(2,'0')).join('')};}
-  if(name==='color_contrast'){const lum=c=>{const h=c.replace('#','');const[r,g,b]=[parseInt(h.substr(0,2),16)/255,parseInt(h.substr(2,2),16)/255,parseInt(h.substr(4,2),16)/255].map(v=>v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4));return 0.2126*r+0.7152*g+0.0722*b;};const l1=lum(args.foreground),l2=lum(args.background);const ratio=(Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);return{ratio:Math.round(ratio*100)/100,AA:ratio>=4.5,AAA:ratio>=7};}
-  if(name==='color_palette')return this.executeTool?await this.executeTool('color_scheme',args):{colors:[args.hex]};
-  if(name==='json_to_rust'){const n=args.name||'Root';const lines=['#[derive(Debug)]','struct '+n+' {'];for(const[k,v] of Object.entries(args.data||{})){const t=typeof v==='string'?'String':typeof v==='number'?'i64':'bool';lines.push('    '+k+': '+t+',');}lines.push('}');return{rust:lines.join('\n')};}
-  if(name==='json_to_kotlin'){const n=args.name||'Root';const f=[];for(const[k,v] of Object.entries(args.data||{})){f.push('    val '+k+': '+(typeof v==='string'?'String':typeof v==='number'?'Int':'Any'));}return{kotlin:'data class '+n+'(\n'+f.join(',\n')+'\n)'};}
-  if(name==='json_to_java'){const n=args.name||'Root';const lines=['public class '+n+' {'];for(const[k,v] of Object.entries(args.data||{})){const t=typeof v==='string'?'String':typeof v==='number'?'int':'Object';lines.push('    private '+t+' '+k+';');}lines.push('}');return{java:lines.join('\n')};}
-  if(name==='json_to_csharp'){const n=args.name||'Root';const lines=['public class '+n+' {'];for(const[k,v] of Object.entries(args.data||{})){const t=typeof v==='string'?'string':typeof v==='number'?'int':'object';lines.push('    public '+t+' '+k.charAt(0).toUpperCase()+k.slice(1)+' { get; set; }');}lines.push('}');return{csharp:lines.join('\n')};}
-  if(name==='json_to_sql_create'){const n=args.table||'my_table';const cols=[];for(const[k,v] of Object.entries(args.data||{})){cols.push('  '+k+' '+(typeof v==='string'?'VARCHAR(255)':typeof v==='number'?'INTEGER':'TEXT'));}return{sql:'CREATE TABLE '+n+' (\n  id INTEGER PRIMARY KEY,\n'+cols.join(',\n')+'\n);'};}
-  if(name==='fake_data'){const names=['Alice','Bob','Charlie','Diana','Eve'];const r=[];for(let i=0;i<Math.min(args.count||5,50);i++){r.push({name:names[i%5]+' '+['Smith','Jones','Brown','Davis','Wilson'][i%5],email:names[i%5].toLowerCase()+'@test.com',id:crypto.randomUUID()});}return{data:r};}
-  if(name==='uuid_batch'){const r=[];for(let i=0;i<Math.min(args.count||10,100);i++)r.push(crypto.randomUUID());return{uuids:r};}
-  if(name==='lorem_ipsum'){const w=['lorem','ipsum','dolor','sit','amet','consectetur','adipiscing','elit','sed','do','eiusmod','tempor','incididunt','ut','labore','et','dolore','magna','aliqua'];const ps=[];for(let p=0;p<(args.paragraphs||3);p++){let s='';for(let i=0;i<40;i++)s+=w[Math.floor(Math.random()*w.length)]+' ';ps.push(s.trim()+'.');}return{text:ps.join('\n\n')};}
-  if(name==='hashtag_generate'){const stops=new Set(['the','a','an','is','are','to','of','in','for','on','with','and','or','but','not']);const words=String(args.text).toLowerCase().match(/[a-z]{3,}/g)||[];const freq={};words.forEach(w=>{if(!stops.has(w))freq[w]=(freq[w]||0)+1;});return{hashtags:Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,10).map(x=>'#'+x[0])};}
-
-  if (name === 'xml_to_json' || name === 'yaml_to_json') {
-    // These are on the hub, proxy via fetch
-  }
-  const m = mapping[name];
-  if (!m) throw new Error('Unknown tool: ' + name);
-
-  const opts = m.method === 'GET' ? {} : {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(m.body)
-  };
-
-  const resp = await fetch(new Request(BASE + m.path, opts));
-  const ct = resp.headers.get('content-type') || '';
-  
-  if (ct.includes('json')) {
-    return await resp.json();
-  }
-  return { result: await resp.text() };
-}
-
-// JSON-RPC 2.0 handler
-async function handleRPC(body) {
-  const { jsonrpc, id, method, params } = body;
-
-  if (jsonrpc !== '2.0') {
-    return { jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid Request: jsonrpc must be "2.0"' } };
-  }
-
-  switch (method) {
-    case 'initialize':
-      return {
-        jsonrpc: '2.0', id,
-        result: {
-          protocolVersion: '2024-11-05',
-          serverInfo: SERVER_INFO,
-          capabilities: {
-            tools: { listChanged: false },
-            resources: { subscribe: false, listChanged: false },
-            prompts: { listChanged: false },
-          }
-        }
-      };
-
-    case 'tools/list':
-      return {
-        jsonrpc: '2.0', id,
-        result: { tools: MCP_TOOLS }
-      };
-
-    case 'tools/call': {
-      const toolName = params?.name;
-      const toolArgs = params?.arguments || {};
-      
-      if (!toolName) {
-        return { jsonrpc: '2.0', id, error: { code: -32602, message: 'Missing tool name' } };
-      }
-
-      try {
-        const result = await executeTool(toolName, toolArgs);
-        return {
-          jsonrpc: '2.0', id,
-          result: {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-            isError: false
-          }
-        };
-      } catch (err) {
-        return {
-          jsonrpc: '2.0', id,
-          result: {
-            content: [{ type: 'text', text: 'Error: ' + err.message }],
-            isError: true
-          }
-        };
-      }
-    }
-
-
-    case 'resources/list':
-      return {
-        jsonrpc: '2.0', id,
-        result: {
-          resources: [
-            {
-              uri: 'https://toolsthatdontupload.com/llms.txt',
-              name: 'API Documentation (llms.txt)',
-              description: 'Complete API reference with 442 endpoints',
-              mimeType: 'text/plain'
-            },
-            {
-              uri: 'https://toolsthatdontupload.com/openapi.json',
-              name: 'OpenAPI Specification',
-              description: 'OpenAPI 3.0 spec with 442 paths',
-              mimeType: 'application/json'
-            },
-            {
-              uri: 'https://toolsthatdontupload.com/privacy/',
-              name: 'Privacy Policy',
-              description: 'Zero retention privacy policy',
-              mimeType: 'text/html'
-            }
-          ]
-        }
-      };
-
-    case 'resources/read': {
-      const resUri = params?.uri;
-      if (!resUri) return { jsonrpc: '2.0', id, error: { code: -32602, message: 'uri required' } };
-      try {
-        const resResp = await fetch(resUri);
-        const resText = await resResp.text();
-        return {
-          jsonrpc: '2.0', id,
-          result: {
-            contents: [{ uri: resUri, text: resText.substring(0, 10000), mimeType: resResp.headers.get('content-type') || 'text/plain' }]
-          }
-        };
-      } catch(e) {
-        return { jsonrpc: '2.0', id, error: { code: -32603, message: e.message } };
-      }
-    }
-
-    case 'prompts/list':
-      return {
-        jsonrpc: '2.0', id,
-        result: {
-          prompts: [
-            {
-              name: 'convert_file',
-              description: 'Help user convert a file between formats',
-              arguments: [
-                { name: 'from_format', description: 'Source format (pdf, jpg, csv, json, etc.)', required: true },
-                { name: 'to_format', description: 'Target format', required: true }
-              ]
-            },
-            {
-              name: 'analyze_data',
-              description: 'Analyze data using available tools (hash, validate, parse)',
-              arguments: [
-                { name: 'data', description: 'The data to analyze', required: true },
-                { name: 'task', description: 'What to do: hash, validate, convert, format', required: true }
-              ]
-            }
-          ]
-        }
-      };
-
-    case 'prompts/get': {
-      const promptName = params?.name;
-      if (promptName === 'convert_file') {
-        return {
-          jsonrpc: '2.0', id,
-          result: {
-            description: 'Convert a file between formats using available tools',
-            messages: [
-              { role: 'user', content: { type: 'text', text: 'Convert from ' + (params?.arguments?.from_format || '?') + ' to ' + (params?.arguments?.to_format || '?') + '. Available tools: csv_to_json, json_to_csv, base64_encode, base64_decode, url_encode, url_decode, markdown_to_html, json_format.' } }
-            ]
-          }
-        };
-      }
-      return { jsonrpc: '2.0', id, error: { code: -32602, message: 'Unknown prompt: ' + promptName } };
-    }
-
-    case 'notifications/initialized':
-      return null; // Notification, no response needed
-
-    default:
-      return {
-        jsonrpc: '2.0', id,
-        error: { code: -32601, message: 'Method not found: ' + method }
-      };
-  }
-}
-
-export default {
-  async fetch(request) {
-    // CORS preflight
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: CORS });
-    }
-
-    const url = new URL(request.url);
-
-    // SSE transport endpoint (for MCP clients)
-    if (url.pathname === '/sse' || url.pathname === '/mcp/sse') {
-      // For SSE-based MCP transport, return event stream
-      // This is a simplified version - full SSE needs streaming
-      return new Response('event: endpoint\ndata: /mcp\n\n', {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          ...CORS
-        }
-      });
-    }
-
-    // Main MCP endpoint  
-    if (request.method === 'POST' && (url.pathname === '/mcp' || url.pathname === '/')) {
-      try {
-        const body = await request.json();
-        const result = await handleRPC(body);
-        
-        if (result === null) {
-          return new Response('', { status: 204, headers: CORS });
-        }
-
-        return new Response(JSON.stringify(result), {
-          headers: { 'Content-Type': 'application/json', ...CORS }
-        });
-      } catch (err) {
-        return new Response(JSON.stringify({
-          jsonrpc: '2.0',
-          error: { code: -32700, message: 'Parse error: ' + err.message }
-        }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', ...CORS }
-        });
-      }
-    }
-
-    // Discovery endpoint
-    if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/mcp')) {
-      return new Response(JSON.stringify({
-        name: SERVER_INFO.name,
-        version: SERVER_INFO.version,
-        description: SERVER_INFO.description,
-        transport: 'http',
-        endpoint: 'https://mcp.toolsthatdontupload.com/mcp',
-        tools: MCP_TOOLS.length,
-        protocol: 'MCP/2024-11-05',
-        documentation: 'https://toolsthatdontupload.com/llms.txt'
-      }, null, 2), {
-        headers: { 'Content-Type': 'application/json', ...CORS }
-      });
-    }
-
-    return new Response('MCP Server - POST /mcp for JSON-RPC', { 
-      status: 200, 
-      headers: { 'Content-Type': 'text/plain', ...CORS } 
-    });
-  }
+const NAME_TO_API={
+hash_text:'/api/hash',generate_uuid:'/api/uuid',base64_encode:'/api/base64',base64_decode:'/api/base64',
+json_format:'/api/json-format',url_encode:'/api/url-encode',url_decode:'/api/url-encode',
+text_diff:'/api/diff',csv_to_json:'/api/csv-to-json',json_to_csv:'/api/json-to-csv',
+generate_qr:'/api/qr',password_generate:'/api/password-gen',jwt_decode:'/api/jwt-decode',
+dns_lookup:'/api/dns-lookup',whois_lookup:'/api/whois',ip_info:'/api/ip-info',
+date_calculate:'/api/date-calc',regex_test:'/api/regex-test',color_convert:'/api/color-convert',
+markdown_to_html:'/api/markdown',text_sentiment:'/api/sentiment',keyword_extract:'/api/keyword-extract',
+language_detect:'/api/language-detect',word_count:'/api/text-count',reading_time:'/api/reading-time',
+json_to_typescript:'/api/json-to-typescript',json_to_python:'/api/json-to-python',
+sql_format:'/api/sql-format',html_minify:'/api/html-minify',json_validate:'/api/json-validate',
+unit_convert:'/api/unit-convert',number_to_words:'/api/number-to-words',
+json_flatten:'/api/json-flatten',password_strength:'/api/password-strength',
+aes_encrypt:'/api/aes-encrypt',aes_decrypt:'/api/aes-decrypt',hmac_sign:'/api/hmac',
+otp_generate:'/api/otp-generate',http_status_info:'/api/http-status-info',
+ssl_check:'/api/ssl-check',meta_extract:'/api/meta-extract',link_check:'/api/link-check',
+sitemap_generate:'/api/sitemap-generate',cron_parse:'/api/cron-parse',cidr_calc:'/api/cidr-calc',
+email_validate:'/api/email-validate',xml_to_json:'/api/xml-to-json',yaml_to_json:'/api/yaml-to-json',
+text_case:'/api/text-case',text_reverse:'/api/text-reverse',text_slug:'/api/text-slug',
+text_truncate:'/api/text-truncate',text_dedupe:'/api/text-dedupe',
+html_entities_encode:'/api/html-entities-encode',rot13:'/api/rot13',morse_encode:'/api/morse-encode',
+json_diff:'/api/json-diff',json_to_yaml:'/api/json-to-yaml',json_sort_keys:'/api/json-sort-keys',
+json_to_go:'/api/json-to-go',math_factorial:'/api/math-factorial',math_gcd:'/api/gcd',
+math_percentage:'/api/math-percentage',math_fibonacci:'/api/fibonacci',math_is_prime:'/api/is-prime',
+iban_validate:'/api/iban-validate',credit_card_validate:'/api/credit-card-validate',
+ip_validate:'/api/ip-validate',url_validate:'/api/url-validate',phone_validate:'/api/phone-validate',
+robots_check:'/api/robots-check',meta_generate:'/api/meta-generate',robots_generate:'/api/robots-generate',
+date_format:'/api/date-format',business_days:'/api/business-days',age_calc:'/api/age-calc',
+timezone_convert:'/api/timezone-convert',relative_time:'/api/relative-time',
+color_blend:'/api/color-blend',color_contrast:'/api/color-contrast',color_palette:'/api/color-palette',
+json_to_rust:'/api/json-to-rust',json_to_kotlin:'/api/json-to-kotlin',json_to_java:'/api/json-to-java',
+json_to_csharp:'/api/json-to-csharp',json_to_sql_create:'/api/json-to-sql-create',
+fake_data:'/api/fake-data',uuid_batch:'/api/uuid-batch',lorem_ipsum:'/api/lorem-ipsum',
+barcode_generate:'/api/barcode',avatar_generate:'/api/avatar-generate',hashtag_generate:'/api/hashtag-generate',
+json_to_swift:'/api/json-to-swift',json_to_php:'/api/json-to-php',json_to_ruby:'/api/json-to-ruby',
+web_fetch:'/api/web-fetch',url_info:'/api/url-info',detect_format:'/api/detect-format',
+html_to_markdown:'/api/html-to-markdown',markdown_to_text:'/api/markdown-to-text',
+text_to_markdown:'/api/text-to-markdown',json_diff_detailed:'/api/json-diff-v2',
+text_stats:'/api/text-stats',
 };
+
+const ROUTE_BIND={"/api/semver-validate":"S_BATCH6B","/api/http-bin-get":"S_BATCH6A","/api/mac-validate":"S_BATCH6B","/api/json-to-rust":"S_BATCH6B","/api/text-sort-lines":"S_BATCH6A","/api/unix-now":"S_BATCH7B","/api/csv-merge":"S_BATCH7A","/api/cors-test":"RL","/api/csp-generate":"S_BATCH7A","/api/base32":"S_BATCH7A","/api/date-parse":"S_BATCH7B","/api/json-query":"S_BATCH7A","/api/api-mock":"S_BATCH7B","/api/bmi-calc":"S_BATCH7B","/api/jwt-encode":"S_BATCH7A","/api/markdown-toc":"S_BATCH7B","/api/calendar-month":"S_BATCH7B","/api/phone-format":"S_BATCH7B","/api/json-to-graphql":"S_BATCH7B","/api/string-rotate":"S_BATCH7A","/api/iso-week":"S_BATCH7B","/api/ascii-art":"S_BATCH7A","/api/csv-stats":"S_BATCH7A","/api/cron-validate":"S_BATCH7B","/api/robots-generate":"S_BATCH7B","/api/xml-format":"S_BATCH7A","/api/string-count-chars":"S_BATCH7A","/api/string-interleave":"S_BATCH7A","/api/cors-headers":"S_BATCH7A","/api/password-hash":"S_BATCH7A","/api/date-add":"S_BATCH7B","/api/sitemap-generate":"S_BATCH7B","/api/meta-generate":"S_BATCH7B","/api/compound-interest":"S_BATCH7B","/api/number-to-words":"S_BATCH7B","/api/uuid-parse":"S_BATCH7B","/api/json-to-java":"S_BATCH6B","/api/json-to-sql-insert":"S_BATCH7B","/api/time-zones":"S_BATCH6B","/api/http-delay":"S_BATCH6A","/api/angle-convert":"S_BATCH7B","/api/text-indent":"S_BATCH6A","/api/json-to-csharp":"S_BATCH6B","/api/color-validate":"S_BATCH6B","/api/json-to-sql-create":"S_BATCH7B","/api/sri-hash":"RL","/api/http-status-code":"S_BATCH6A","/api/work-hours":"S_BATCH6B","/api/json-to-kotlin":"S_BATCH6B","/api/binary-calc":"S_BATCH7B","/api/avatar-svg":"S_BATCH6B","/api/json-to-ini":"S_BATCH6A","/api/http-bin-post":"S_BATCH6A","/api/env-to-json":"S_BATCH6A","/api/checksum":"S_BATCH6A","/api/text-remove-blank":"S_BATCH6A","/api/subnet-list":"S_BATCH6B","/api/text-prefix":"S_BATCH6A","/api/ini-to-json":"S_BATCH6A","/api/yaml-format":"S_BATCH6A","/api/token-generate":"S_BATCH6A","/api/permutation":"S_BATCH6B","/api/key-pair":"S_BATCH6A","/api/hmac":"S_BATCH6A","/api/hash-compare":"S_BATCH6A","/api/properties-to-json":"S_BATCH6A","/api/text-between":"S_BATCH6A","/api/isbn-validate":"S_BATCH6B","/api/ipv6-validate":"S_BATCH6B","/api/json-to-swift":"S_BATCH6B","/api/roman-numeral":"S_BATCH6B","/api/hex-calc":"S_BATCH6B","/api/ratio-simplify":"S_BATCH6B","/api/combination":"S_BATCH6B","/api/port-info":"S_BATCH6B","/api/time-diff":"S_BATCH6B","/api/relative-time":"S_BATCH6B","/api/excerpt":"S_BATCH6B","/api/hashtag-generate":"S_BATCH6B","/api/username-generate":"S_BATCH6B","/api/string-template":"S_BATCH7A","/api/standard-deviation":"S_BATCH8B","/api/http-auth-basic":"S_BATCH8A","/api/string-pad-multi":"S_BATCH10A","/api/array-paginate":"S_BATCH10A","/api/json-key-rename":"S_BATCH10A","/api/text-line-numbers":"S_BATCH10A","/api/math-clamp":"S_BATCH10A","/api/math-average":"S_BATCH10A","/api/date-relative":"S_BATCH10A","/api/invoice-generate":"S_BATCH8A","/api/array-group-by":"S_BATCH9B","/api/hash-multiple":"S_BATCH9A","/api/text-to-title":"S_BATCH10B","/api/zip-validate":"S_BATCH8B","/api/json-transform":"S_BATCH10A","/api/json-null-remove":"S_BATCH10A","/api/array-zip":"S_BATCH10B","/api/array-rotate":"S_BATCH10A","/api/vat-validate":"S_BATCH8B","/api/text-char-count":"S_BATCH10A","/api/object-keys":"S_BATCH10A","/api/text-encode-stats":"S_BATCH9B","/api/csv-add-column":"S_BATCH10A","/api/color-mix":"S_BATCH10A","/api/text-full-stats":"S_BATCH10A","/api/http-cache-headers":"S_BATCH8B","/api/text-to-slug-v2":"S_BATCH9B","/api/loan-calc":"S_BATCH8A","/api/text-compare":"S_BATCH8B","/api/date-format-convert":"S_BATCH8B","/api/password-policy":"S_BATCH8B","/api/json-to-html-list":"S_BATCH10B","/api/string-hash":"S_BATCH8B","/api/math-power":"S_BATCH10B","/api/aspect-ratio":"S_BATCH8A","/api/array-stats":"S_BATCH10B","/api/user-agent-generate":"S_BATCH8B","/api/text-dedup-lines":"S_BATCH10A","/api/text-highlight":"S_BATCH8B","/api/dns-record-info":"S_BATCH9A","/api/fiscal-year":"S_BATCH8B","/api/html-to-json":"S_BATCH10A","/api/timezone-list":"S_BATCH8B","/api/percentile":"S_BATCH8B","/api/text-extract-numbers":"S_BATCH10B","/api/margin-calc":"S_BATCH8A","/api/string-reverse-v2":"S_BATCH10A","/api/http-auth-bearer":"S_BATCH8A","/api/json-to-tsv":"S_BATCH10B","/api/shadow-css":"S_BATCH8A","/api/swift-validate":"S_BATCH8B","/api/meta-description":"S_BATCH8A","/api/querystring-to-json":"S_BATCH9B","/api/text-normalize":"S_BATCH8B","/api/meta-score":"S_BATCH8A","/api/base58":"S_BATCH8A","/api/geometric-mean":"S_BATCH8B","/api/json-to-schema":"S_BATCH9A","/api/lcm-multi":"S_BATCH8B","/api/tax-calc":"S_BATCH8A","/api/roi-calc":"S_BATCH8A","/api/keyword-density":"S_BATCH8A","/api/readability-score":"S_BATCH8A","/api/title-generator":"S_BATCH8A","/api/gradient-css":"S_BATCH8A","/api/curl-parse":"S_BATCH8A","/api/json-patch":"S_BATCH9A","/api/html-to-markdown":"S_BATCH8A","/api/csv-to-markdown":"S_BATCH8A","/api/date-diff-detailed":"S_BATCH8B","/api/quadratic":"S_BATCH8B","/api/etag-generate":"S_BATCH8B","/api/accept-header":"S_BATCH8B","/api/number-round":"S_BATCH9B","/api/json-to-form-data":"S_BATCH10B","/api/math-trig":"S_BATCH10B","/api/array-flatten":"S_BATCH9B","/api/uuid-batch":"S_BATCH9A","/api/object-flatten":"S_BATCH9B","/api/list-to-text":"S_BATCH9B","/api/color-brightness":"S_BATCH9B","/api/json-to-querystring":"S_BATCH9B","/api/object-diff":"S_BATCH9B","/api/json-prettify":"S_BATCH9A","/api/string-entropy":"S_BATCH9B","/api/json-depth":"S_BATCH9B","/api/regex-generate":"S_BATCH9A","/api/sql-dummy":"S_BATCH9A","/api/csv-column":"S_BATCH9B","/api/json-to-dotenv":"S_BATCH9A","/api/markdown-to-text":"S_BATCH9A","/api/ip-range":"S_BATCH9A","/api/color-scheme":"S_BATCH9A","/api/cron-random":"S_BATCH9A","/api/math-map":"S_BATCH10A","/api/xml-to-text":"S_BATCH9A","/api/text-to-list":"S_BATCH9B","/api/text-remove-dup-words":"S_BATCH10B","/api/markdown-links":"S_BATCH9B","/api/html-table-to-json":"S_BATCH9B","/api/text-word-freq":"S_BATCH9B","/api/text-extract-mentions":"S_BATCH10B","/api/json-size":"S_BATCH9B","/api/text-clean-whitespace":"S_BATCH10A","/api/css-color-to-rgb":"S_BATCH10A","/api/text-extract-dates":"S_BATCH10B","/api/text-wrap-lines":"S_BATCH10A","/api/html-clean":"S_BATCH10A","/api/url-enrichment":"S_BATCH10A","/api/json-to-markdown-table":"S_BATCH10A","/api/array-unzip":"S_BATCH10B","/api/tsv-to-json":"S_BATCH10B","/api/text-to-acronym":"S_BATCH10B","/api/math-factorial":"S_BATCH10B","/api/math-log":"S_BATCH10B","/api/json-to-xml-attr":"S_BATCH10B","/api/number-to-ordinal":"S_BATCH10B","/api/color-invert":"S_BATCH10B","/api/array-difference":"S_BATCH10B","/api/text-extract-hashtags":"S_BATCH10B","/api/json-to-yaml-v2":"S_BATCH10B","/api/array-sample":"S_BATCH10B","/api/text-to-base64url":"S_BATCH10B","/api/aes-encrypt":"S_INPUT_FIX","/api/aes-decrypt":"S_INPUT_FIX","/api/base64":"S_INPUT_FIX","/api/markdown":"S_INPUT_FIX","/api/hash":"S_INPUT_FIX","/api/csv-to-json":"S_INPUT_FIX","/api/json-to-csv":"S_INPUT_FIX","/api/url-encode":"S_INPUT_FIX","/api/diff":"S_INPUT_FIX","/api/json-format":"S_INPUT_FIX","/api/yaml-to-json":"S_INPUT_FIX","/api/text-count":"S_INPUT_FIX","/api/ai-health":"S_AI","/api/math-round-v2":"S_BATCH11","/api/text-lines":"S_BATCH12","/api/array-includes":"S_BATCH12","/api/code-diff":"S_FIX","/api/object-entries":"S_BATCH11","/api/is-weekend":"S_BATCH11","/api/hex-decode":"S_BATCH11","/api/text-unique":"S_BATCH12","/api/json-values-v2":"S_BATCH12","/api/string-starts-with":"S_BATCH12","/api/array-join":"S_BATCH12","/api/array-first":"S_BATCH11","/api/object-has":"S_BATCH11","/api/text-join":"S_BATCH12","/api/text-pad":"S_BATCH12","/api/is-json":"S_BATCH11","/api/array-count":"S_BATCH11","/api/json-to-yaml":"S_FIX","/api/string-contains":"S_BATCH11","/api/json-diff-v2":"S_BATCH13","/api/array-reverse":"S_BATCH11","/api/quarter-from-date":"S_BATCH11","/api/binary-decode":"S_BATCH11","/api/math-random":"S_BATCH12","/api/object-merge-v2":"S_BATCH11","/api/binary-encode":"S_BATCH11","/api/days-in-month":"S_BATCH11","/api/math-floor":"S_BATCH12","/api/array-range":"S_BATCH12","/api/day-of-year":"S_BATCH11","/api/text-to-markdown":"S_BATCH13","/api/ip-geolocation":"S_EXPANDED","/api/csv-sort":"S_EXPANDED","/api/color-palette":"S_EXPANDED","/api/csv-filter":"S_EXPANDED","/api/random-bytes":"S_EXPANDED","/api/text-extract-emails":"S_EXPANDED","/api/hash-file":"S_EXPANDED","/api/timestamp":"S_EXPANDED","/api/pdf-page-count":"S_EXPANDED","/api/hex-encode":"S_BATCH11","/api/is-leap-year":"S_BATCH11","/api/math-abs":"S_BATCH11","/api/math-sqrt":"S_BATCH11","/api/math-min-max":"S_BATCH11","/api/math-sum":"S_BATCH11","/api/array-last":"S_BATCH11","/api/array-compact":"S_BATCH11","/api/is-number":"S_BATCH11","/api/string-split-v2":"S_BATCH12","/api/string-substring":"S_BATCH12","/api/math-ceil":"S_BATCH12","/api/string-char-at":"S_BATCH12","/api/json-clone":"S_BATCH12","/api/text-wrap-v2":"S_BATCH12","/api/json-keys-v2":"S_BATCH12","/api/json-type":"S_BATCH12","/api/json-equal":"S_BATCH12","/api/array-slice":"S_BATCH12","/api/array-split":"S_BATCH12","/api/math-sign":"S_BATCH12","/api/math-clamp-v2":"S_BATCH12","/api/string-ends-with":"S_BATCH12","/api/detect-format":"S_BATCH13","/api/text-extract-urls":"S_EXPANDED","/api/json-diff":"S_EXPANDED","/api/user-agent":"S_EXPANDED","/api/image-crop":"S_EXPANDED","/api/barcode":"S_EXPANDED","/api/word-count":"S_EXPANDED","/api/lorem-ipsum":"S_EXPANDED","/api/image-flip":"S_EXPANDED","/api/pdf-to-text":"S_EXPANDED","/api/json-to-php":"S_BATCH13","/api/json-to-ruby":"S_BATCH13","/api/robots-validate":"S_EXPANDED_V2","/api/json-path":"S_EXPANDED_V2","/api/iban-validate":"S_EXPANDED_V2","/api/crontab-next":"S_EXPANDED_V2","/api/text-slug":"S_EXPANDED_V2","/api/text-stats":"S_EXPANDED_V2","/api/json-to-text":"S_REDIRECT","/api/otp-generate":"S_EXPANDED_V2","/api/text-to-json":"S_REDIRECT","/api/json-merge":"S_EXPANDED_V2","/api/cidr-calc":"S_EXPANDED_V2","/api/credit-card-validate":"S_EXPANDED_V2","/api/open-graph":"RL","/api/statistics":"S_BATCH3","/api/json-to-typescript":"S_EXPANDED_V2","/api/text-truncate":"S_EXPANDED_V2","/api/markdown-to-html":"S_EXPANDED_V2","/api/json-flatten":"S_EXPANDED_V2","/api/json-unflatten":"S_EXPANDED_V2","/api/otp-verify":"S_EXPANDED_V2","/api/csp-parse":"S_EXPANDED_V2","/api/sql-format":"S_EXPANDED_V2","/api/html-entities":"S_EXPANDED_V2","/api/structured-data":"S_EXPANDED_V2","/api/mime-lookup":"S_EXPANDED_V2","/api/nato-phonetic":"S_BATCH3","/api/matrix-calc":"S_BATCH3","/api/text-dedupe":"S_MISSING","/api/css-minify":"S_MISSING","/api/http-status":"S_MISSING","/api/unix-timestamp":"S_MISSING","/api/text-diff-words":"S_BATCH3","/api/text-reverse":"S_MISSING","/api/sitemap-parse":"RL","/api/text-case":"S_MISSING","/api/html-minify":"S_MISSING","/api/js-minify":"S_MISSING","/api/json-validate":"S_MISSING","/api/bcrypt":"S_MISSING","/api/url-decode":"S_MISSING","/api/pdf-protect":"S_MISSING","/api/jwt-create":"S_BATCH3","/api/csv-to-excel":"S_BATCH3","/api/text-similarity":"S_BATCH3","/api/json-to-go":"S_BATCH3","/api/lighthouse-score":"RL","/api/string-escape":"S_BATCH3","/api/canonical-url":"RL","/api/hash-identify":"S_BATCH3","/api/http-method-info":"S_BATCH3","/api/json-minify":"S_BATCH3","/api/json-sort-keys":"S_BATCH3","/api/data-masking":"S_BATCH3","/api/country-info":"S_BATCH3","/api/punycode":"S_BATCH3","/api/number-format":"S_BATCH3","/api/math-eval":"S_BATCH3","/api/cron-describe":"S_BATCH3","/api/percentage":"S_BATCH3","/api/tech-detect":"RL","/api/json-to-table":"S_BATCH3","/api/base-convert":"S_BATCH3","/api/json-to-python":"S_BATCH3","/api/password-strength":"S_BATCH3","/api/timezone-convert":"S_BATCH3","/api/ip-validate":"S_BATCH4A","/api/duration-format":"S_BATCH4B","/api/fake-data":"S_BATCH4B","/api/morse-code":"S_BATCH4A","/api/color-contrast":"S_BATCH4A","/api/age-calc":"S_BATCH4A","/api/id-generator":"S_BATCH4B","/api/json-to-yaml-pretty":"S_BATCH4B","/api/json-to-env":"S_BATCH4B","/api/sentiment":"S_BATCH4B","/api/language-detect":"S_BATCH4B","/api/keyword-extract":"S_BATCH4B","/api/xml-validate":"S_BATCH4B","/api/css-validate":"S_BATCH4B","/api/emoji-search":"S_BATCH4B","/api/temperature":"S_BATCH4B","/api/glob-match":"S_BATCH4A","/api/holiday-check":"S_BATCH4A","/api/url-parse":"S_BATCH4A","/api/email-parse":"S_BATCH4A","/api/json-to-form":"S_BATCH4B","/api/json-lint":"S_BATCH4B","/api/date-range":"S_BATCH4A","/api/color-blend":"S_BATCH4A","/api/binary-text":"S_BATCH4A","/api/color-name":"S_BATCH4A","/api/text-summarize-extractive":"S_BATCH4B","/api/rot13":"S_BATCH4A","/api/bytes-format":"S_BATCH4B","/api/caesar-cipher":"S_BATCH4A","/api/color-random":"S_BATCH4A","/api/date-format":"S_BATCH4A","/api/json-to-xml-pretty":"S_BATCH4B","/api/regex-extract":"S_BATCH4A","/api/distance":"S_BATCH4B","/api/business-days":"S_BATCH4A","/api/hex-text":"S_BATCH4A","/api/url-validate":"S_BATCH4B","/api/sample-csv":"S_BATCH4B","/api/regex-replace":"S_BATCH4A","/api/semver-compare":"S_BATCH4A","/api/text-ngrams":"S_BATCH4B","/api/phone-validate":"S_BATCH4B","/api/weight":"S_BATCH4B","/api/json-to-csv-flat":"S_BATCH4B","/api/mock-json":"S_BATCH4B","/api/headers-parse":"S_BATCH4A","/api/cookie-parse":"S_BATCH4A","/api/text-columns":"S_BATCH5B","/api/text-number-lines":"S_BATCH5B","/api/random-color":"S_BATCH5B","/api/color-shades":"S_BATCH5B","/api/object-invert":"S_BATCH5A","/api/uuid-v1":"S_BATCH5A","/api/domain-validate":"S_BATCH5B","/api/string-pad":"S_BATCH5A","/api/date-week-number":"S_BATCH5B","/api/array-intersect":"S_BATCH5A","/api/unicode-info":"S_BATCH5B","/api/mac-format":"S_BATCH5A","/api/random-string":"S_BATCH5B","/api/string-repeat":"S_BATCH5A","/api/area-convert":"S_BATCH5B","/api/array-sort":"S_BATCH5A","/api/object-pick":"S_BATCH5A","/api/object-omit":"S_BATCH5A","/api/text-remove-html":"S_BATCH5B","/api/is-prime":"S_BATCH5A","/api/ai-ocr":"RL","/api/string-wrap":"S_BATCH5A","/api/lorem-korean":"S_BATCH5A","/api/color-gradient":"S_BATCH5B","/api/array-chunk":"S_BATCH5A","/api/string-mask":"S_BATCH5A","/api/energy-convert":"S_BATCH5B","/api/array-shuffle":"S_BATCH5A","/api/gcd":"S_BATCH5A","/api/fibonacci":"S_BATCH5A","/api/json-compare":"S_BATCH5B","/api/date-countdown":"S_BATCH5B","/api/array-unique":"S_BATCH5A","/api/escape-unescape":"S_BATCH5B","/api/prime-factors":"S_BATCH5A","/api/ip-to-binary":"S_BATCH5A","/api/text-case-convert":"S_BATCH5B","/api/ai-summarize":"RL","/api/data-convert":"S_BATCH5B","/api/random-number":"S_BATCH5B","/api/speed-convert":"S_BATCH5B","/api/hex-validate":"S_BATCH5B","/api/length-convert":"S_BATCH5B","/api/volume-convert":"S_BATCH5B","/api/pressure-convert":"S_BATCH5B","/api/pdf-rotate":"RL","/api/pdf-watermark":"RL","/api/pdf-merge":"RL","/api/ai-image":"RL","/api/ai-translate":"RL","/api/pdf-split":"RL","/api/image-compress":"RL","/api/image-convert":"RL","/api/image-resize":"RL","/api/pdf-compress":"RL","/api/pdf-extract":"RL","/api/pdf-metadata":"RL","/api/web-fetch":"RL","/api/whois":"RL","/api/ip-info":"RL","/api/http-headers":"RL","/api/ssl-check":"RL","/api/http-redirect":"RL","/api/meta-extract":"RL","/api/dns-lookup":"RL","/api/url-info":"RL","/api/link-check":"RL","/api/json-to-csv-enhanced":"S_BATCH14","/api/user-agent-parse":"S_BATCH14","/api/markdown-to-html-full":"S_BATCH14","/api/screenshot":"S_BATCH14","/api/html-to-pdf":"S_BATCH14","/api/my-ip":"S_BATCH14","/api/favicon":"RL","/api/webhook-test":"RL","/api/security-headers":"RL","/api/robots-check":"S_MISSING","/api/domain-age":"RL","/api/rss-parse":"RL"};
+function toolPath(name){return NAME_TO_API[name]||('/api/'+String(name||'').replace(/_/g,'-'));}
+async function callTool(name,args,ctx){
+  const ep=toolPath(name);
+  const bind=ROUTE_BIND[ep];
+  const headers={'Content-Type':'application/json','User-Agent':'ttdu-mcp/1.5'};
+  if(bind==='RL'){headers['x-internal-token']=ctx.env.INTERNAL_TOKEN;headers['x-client-ip']=ctx.ip;if(ctx.key)headers['x-api-key']=ctx.key;}
+  const meta=CATALOG_BY_NAME[name]||{};let req;if(meta.method==='GET'){const qs=new URLSearchParams();for(const k in (args||{}))qs.set(k,typeof args[k]==='object'?JSON.stringify(args[k]):String(args[k]));req=new Request(API+ep+'?'+qs.toString(),{method:'GET',headers});}else req=new Request(API+ep,{method:'POST',headers,body:JSON.stringify(args||{})});
+  let r;
+  try{
+    if(bind&&ctx.env[bind])r=await ctx.env[bind].fetch(req);
+    else r=await fetch(req);
+  }catch(e){return{status:502,data:{error:'Tool call failed: '+e.message}};}
+  const txt=await r.text();
+  let data;try{data=JSON.parse(txt);}catch(e){data={result:txt.slice(0,20000),contentType:r.headers.get('content-type')};}
+  if(r.status>=500&&/<html/i.test(txt))data={error:'The tool failed on this input (HTTP '+r.status+'). Check argument types against the example from search_tools.'};
+  if(r.status===404&&data&&data.error==='Unknown endpoint')data={error:'Unknown tool: '+name+'. Use search_tools to find valid tool names.'};
+  return{status:r.status,data};
+}
+
+export default{async fetch(request,env){
+  if(request.method==='OPTIONS')return new Response(null,{status:204,headers:CORS});
+  if(request.method==='GET'){
+    return new Response(JSON.stringify({name:'tools-that-dont-upload',version:'1.5.0',transport:'streamable-http (POST JSON-RPC)',mcp_tools:META_TOOLS.length,catalog_tools:CATALOG.length}),{headers:{'Content-Type':'application/json',...CORS}});
+  }
+  try{
+    var body=await request.json();
+    var id=body.id;var method=body.method;var params=body.params;
+    
+    if(typeof method==='string'&&method.indexOf('notifications/')===0)return new Response(null,{status:202,headers:CORS});
+    if(method==='ping')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{}}),{headers:{'Content-Type':'application/json',...CORS}});
+    if(method==='initialize'){var reqV=params&&params.protocolVersion;var si=Object.assign({},SERVER_INFO,{protocolVersion:SUPPORTED_PROTOCOLS.indexOf(reqV)>=0?reqV:SUPPORTED_PROTOCOLS[0]});return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:si}),{headers:{'Content-Type':'application/json',...CORS}});}
+    if(false)return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:SERVER_INFO}),{headers:{'Content-Type':'application/json',...CORS}});
+    
+    if(method==='tools/list')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{tools:META_TOOLS}}),{headers:{'Content-Type':'application/json',...CORS}});
+    
+    if(method==='tools/call'){
+      var name=params?.name;var args=params?.arguments||{};
+      var result;
+      
+      if(name==='search_tools'){
+        var q=String(args.query||'').toLowerCase().trim();var toks=q.split(/[^a-z0-9]+/).filter(Boolean);
+        var catF=String(args.category||'').toLowerCase();var lim=Math.min(Math.max(parseInt(args.limit)||10,1),50);
+        var scored=CATALOG.filter(function(t){return !catF||t.kind===catF||t.category===catF;}).map(function(t){
+          var parts=t.name.split('_');var desc=(t.description||'').toLowerCase();var s=0;
+          if(t.name===q.replace(/[\s-]+/g,'_'))s+=50;
+          toks.forEach(function(k){if(parts.indexOf(k)>=0)s+=10;else if(parts.some(function(p){return p.indexOf(k)===0;}))s+=4;else if(t.name.indexOf(k)>=0)s+=1;if((' '+desc+' ').indexOf(' '+k)>=0)s+=2;if(t.category===k||t.kind===k)s+=3;});
+          return{t:t,s:s};}).filter(function(x){return x.s>0||!toks.length;}).sort(function(a,b){return b.s-a.s;}).slice(0,lim).map(function(x){return x.t;});
+        result={tools:scored,count:scored.length,total:CATALOG.length,hint:'Call run_tool with {tool:<name>, arguments:{...}}. Network tools (kind=network) need an X-API-Key header.'};
+      }
+      else if(name==='run_tool'){
+        var apiKey2=request.headers.get('x-api-key')||(request.headers.get('authorization')||'').replace(/^Bearer\s+/i,'');
+        var ip2=request.headers.get('cf-connecting-ip')||'unknown';
+        if(!args.tool||!(CATALOG_BY_NAME[args.tool]||NAME_TO_API[args.tool])){result={error:'Unknown tool: '+args.tool+'. Use search_tools to find valid tool names.'};}
+        else if(CATALOG_BY_NAME[args.tool]&&CATALOG_BY_NAME[args.tool].mcp===false){result={error:CATALOG_BY_NAME[args.tool].note,rest:'https://toolsthatdontupload.com'+CATALOG_BY_NAME[args.tool].path};}
+        else{var out=await callTool(args.tool,args.arguments||{},{env:env,ip:ip2,key:apiKey2});result=out.data;if(out.status>=400&&result&&!result.error)result={error:(result.detail||result.title||('HTTP '+out.status)),details:result};}
+      }
+      else if(name==='list_categories'){
+        result={categories:CATEGORIES,totalTools:CATALOG.length};
+      }
+      else{
+        result={error:'Unknown meta-tool. Use search_tools, run_tool, or list_categories.'};
+      }
+      
+      return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{content:[{type:'text',text:JSON.stringify(result)}],isError:!!result.error}}),{headers:{'Content-Type':'application/json',...CORS}});
+    }
+    
+    if(method==='resources/list')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{resources:[{uri:'tools://catalog',name:'Full Tool Catalog',description:'Complete tool catalog with parameters',mimeType:'application/json'},{uri:'tools://pricing',name:'Pricing & Credits',description:'Credit costs per tool type and subscription plans',mimeType:'application/json'},{uri:'tools://status',name:'System Status',description:'Version and catalog size',mimeType:'application/json'}]}}),{headers:{'Content-Type':'application/json',...CORS}});
+    if(method==='resources/read'){if(params?.uri==='tools://pricing')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{contents:[{uri:'tools://pricing',mimeType:'application/json',text:JSON.stringify({creditCosts:{compute:5,network:20,file:60,ai_translate:50,ai_ocr:100,ai_image:200},plans:{free_key:'1,000cr/mo',dev:'$9/mo 100,000cr',business:'$49/mo 500,000cr'},packs:{starter:'$5/50,000cr',standard:'$10/100,000cr',pro:'$25/300,000cr',bulk:'$50/750,000cr'}})}]}}),{headers:{'Content-Type':'application/json',...CORS}});if(params?.uri==='tools://status')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{contents:[{uri:'tools://status',mimeType:'application/json',text:JSON.stringify({version:'1.5.0',catalog_tools:CATALOG.length,mcp_tools:META_TOOLS.length,status_page:'https://toolsthatdontupload.com/status/'})}]}}),{headers:{'Content-Type':'application/json',...CORS}});if(params?.uri==='tools://catalog')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{contents:[{uri:'tools://catalog',mimeType:'application/json',text:JSON.stringify(CATALOG)}]}}),{headers:{'Content-Type':'application/json',...CORS}});}
+    if(method==='prompts/list')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{prompts:[{name:'quickstart',description:'How to use Tools That Don\'t Upload MCP server',arguments:[]},{name:'find_tool',description:'Find the right tool for a task',arguments:[{name:'task',description:'What you want to do',required:true}]}]}}),{headers:{'Content-Type':'application/json',...CORS}});
+    
+    if(method==='prompts/get'){var pname=params?.name;if(pname==='quickstart')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{messages:[{role:'user',content:{type:'text',text:'Use search_tools to find tools by keyword, then run_tool to execute them. Example: search_tools({query:"pdf"}) then run_tool({tool:"pdf_merge",arguments:{...}}). Network tools need an API key (X-API-Key header).'}}]}}),{headers:{'Content-Type':'application/json',...CORS}});if(pname==='find_tool'){var task=params?.arguments?.task||'';return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{messages:[{role:'user',content:{type:'text',text:'Search for tools matching: '+task+'. Use search_tools({query:"'+task+'"}) to find matching tools, then run_tool to execute.'}}]}}),{headers:{'Content-Type':'application/json',...CORS}});}return new Response(JSON.stringify({jsonrpc:'2.0',id:id,error:{code:-32602,message:'Unknown prompt'}}),{headers:{'Content-Type':'application/json',...CORS}});}return new Response(JSON.stringify({jsonrpc:'2.0',id:id,error:{code:-32601,message:'Method not found'}}),{headers:{'Content-Type':'application/json',...CORS}});
+  }catch(e){
+    return new Response(JSON.stringify({jsonrpc:'2.0',id:null,error:{code:-32700,message:e.message}}),{status:400,headers:{'Content-Type':'application/json',...CORS}});
+  }
+}};
