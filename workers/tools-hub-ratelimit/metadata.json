@@ -1,0 +1,85 @@
+{
+  "main_module": "worker.mjs",
+  "compatibility_date": "2024-09-23",
+  "bindings": [
+    {
+      "type": "kv_namespace",
+      "name": "RATE_KV",
+      "namespace_id": "1f125da984174edabb254e8ae033b78d"
+    },
+    {
+      "type": "kv_namespace",
+      "name": "KEYS_KV",
+      "namespace_id": "e495f19b4ab94afca403db6e9b79f8df"
+    },
+    {
+      "type": "service",
+      "name": "B13",
+      "service": "tools-hub-batch13",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "EXP",
+      "service": "tools-hub-expanded",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "EXP2",
+      "service": "tools-hub-expanded-v2",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "MISS",
+      "service": "tools-hub-missing",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "REDIR",
+      "service": "tools-hub-redirect",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "WHOIS",
+      "service": "tools-whois",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "B7B",
+      "service": "tools-hub-batch7b",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "B7A",
+      "service": "tools-hub-batch7a",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "B8A",
+      "service": "tools-hub-batch8a",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "B3",
+      "service": "tools-hub-batch3",
+      "environment": "production"
+    },
+    {
+      "type": "service",
+      "name": "AI",
+      "service": "tools-ai",
+      "environment": "production"
+    }
+  ],
+  "keep_bindings": [
+    "secret_text"
+  ]
+}
