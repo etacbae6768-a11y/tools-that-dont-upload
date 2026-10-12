@@ -1,0 +1,50 @@
+name: deploy-workers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workers/**'
+      - 'scripts/deploy.mjs'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: deploy-workers
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Bundle deployed sources
+        run: |
+          tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --numeric-owner -czf workers-bundle.tgz workers
+          echo "BUNDLE_SHA256=$(sha256sum workers-bundle.tgz | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: workers-bundle.tgz
+
+      - name: Deploy to Cloudflare Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: bfe736ca1eb7ad4f0556c29358a77eda
+        run: node scripts/deploy.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workers-bundle
+          path: workers-bundle.tgz
