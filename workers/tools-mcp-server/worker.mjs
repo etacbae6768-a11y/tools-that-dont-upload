@@ -1,3 +1,4 @@
+const KO_ALIAS={"sha256":["hash"],"sha512":["hash"],"sha1":["hash"],"md5":["hash"],"checksum":["hash"],"사업자":["@kr_business_number"],"등록번호":["@kr_business_number"],"견적":["@kr_quote"],"거래명세":["@kr_transaction_statement"],"명세서":["@kr_transaction_statement"],"차용":["@kr_loan_agreement"],"근로계약":["@kr_employment_contract"],"계약서":["@kr_employment_contract","@kr_loan_agreement"],"개인정보":["@ko_pii_mask"],"마스킹":["@ko_pii_mask"],"주민번호":["@ko_pii_mask"],"조사":["@ko_josa"],"초성":["@ko_chosung"],"로마자":["@ko_romanize"],"영문표기":["@ko_romanize"],"금액":["@ko_amount_words"],"원정":["@ko_amount_words"],"한글":["korean"],"병합":["merge"],"합치":["merge"],"분할":["split"],"나누":["split"],"회전":["rotate"],"워터마크":["watermark"],"메타데이터":["metadata"],"해시":["hash"],"비밀번호":["password"],"암호":["password"],"변환":["convert"],"압축":["compress"],"번역":["translate"],"요약":["summarize"],"날짜":["date"],"시간":["time"],"타임스탬프":["timestamp"],"색상":["color"],"큐알":["qr"],"바코드":["barcode"],"정규식":["regex"],"대소문자":["case"],"글자수":["count"],"단어수":["count"],"인코딩":["encode"],"디코딩":["decode"],"단위":["unit"],"도메인":["domain","whois"],"인증서":["ssl"],"이메일":["email"],"전화번호":["phone"],"웹페이지":["fetch"],"스크린샷":["screenshot"],"계산":["calc"],"이미지":["image"],"문자열":["text"],"정렬":["sort"],"중복":["dedupe","unique"]};
 const API='https://toolsthatdontupload.com';
 const CORS={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-API-Key,Mcp-Session-Id,Mcp-Protocol-Version,Last-Event-ID','Access-Control-Expose-Headers':'Mcp-Session-Id,WWW-Authenticate'};
 
@@ -206,14 +207,14 @@ export default{async fetch(request,env){
       var result;
       
       if(name==='search_tools'){
-        var q=String(args.query||'').toLowerCase().trim();var toks=q.split(/[^a-z0-9]+/).filter(Boolean);
+        var q=String(args.query||'').toLowerCase().trim();var toks=q.split(/[^\p{L}\p{N}]+/u).filter(Boolean);var boostT={};Object.keys(KO_ALIAS).forEach(function(a){if(q.indexOf(a)>=0)KO_ALIAS[a].forEach(function(x){if(x.charAt(0)==='@')boostT[x.slice(1)]=(boostT[x.slice(1)]||0)+40;else if(toks.indexOf(x)<0)toks.push(x);});});
         var catF=String(args.category||'').toLowerCase();var lim=Math.min(Math.max(parseInt(args.limit)||10,1),50);
         var scored=CATALOG.filter(function(t){return !catF||t.kind===catF||t.category===catF;}).map(function(t){
           var parts=t.name.split('_');var desc=(t.description||'').toLowerCase();var s=0;
           if(t.name===q.replace(/[\s-]+/g,'_'))s+=50;
-          toks.forEach(function(k){if(parts.indexOf(k)>=0)s+=10;else if(parts.some(function(p){return p.indexOf(k)===0;}))s+=4;else if(t.name.indexOf(k)>=0)s+=1;if((' '+desc+' ').indexOf(' '+k)>=0)s+=2;if(t.category===k||t.kind===k)s+=3;});
-          return{t:t,s:s};}).filter(function(x){return x.s>0||!toks.length;}).sort(function(a,b){return b.s-a.s;}).slice(0,lim).map(function(x){return x.t;});
-        result={tools:scored,count:scored.length,total:CATALOG.length,note:'Tools with kind=network need an X-API-Key header.'};
+          if(boostT[t.name])s+=boostT[t.name];toks.forEach(function(k){var ascii=/^[a-z0-9]+$/.test(k);if(ascii){if(parts.indexOf(k)>=0)s+=10;else if(parts.some(function(p){return p.indexOf(k)===0;}))s+=4;else if(t.name.indexOf(k)>=0)s+=1;if((' '+desc+' ').indexOf(' '+k)>=0)s+=2;if(t.category===k||t.kind===k)s+=3;}else if(k.length>=2&&desc.indexOf(k)>=0)s+=12;});
+          return{t:t,s:s};}).filter(function(x){return x.s>0||!q;}).sort(function(a,b){return b.s-a.s;}).slice(0,lim).map(function(x){return x.t;});
+        result={tools:scored,count:scored.length,total:CATALOG.length,note:scored.length?'Tools with kind=network need an X-API-Key header.':'No matching tool. Try other keywords (English works best), or list_categories.'};
       }
       else if(name==='run_tool'){
         var apiKey2=request.headers.get('x-api-key')||(request.headers.get('authorization')||'').replace(/^Bearer\s+/i,'');
