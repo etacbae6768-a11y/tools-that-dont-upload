@@ -23,7 +23,7 @@ export default{async fetch(request,env){
     const k=keyOf(request);if(!k)return J({error:'X-API-Key header required'},401);
     const f=await find(env,k);if(!f)return J({error:'Invalid key'},401);
     const tier=f.d.cancelled_at?'free':(f.d.tier||'free');const limit=LIMITS[tier]||1000;const month=new Date().toISOString().slice(0,7);
-    const used=parseInt(await env.RATE_KV.get('cr:'+f.h+':'+month)||'0');const prepaid=parseInt(await env.RATE_KV.get('prepaid:'+f.h)||'0');
+    const acct=f.d.account?String(f.d.account).replace(/^kh:|^oa:/,''):f.h;const used=parseInt(await env.RATE_KV.get('cr:'+acct+':'+month)||'0');const prepaid=parseInt(await env.RATE_KV.get('prepaid:'+acct)||'0');
     return J({tier,monthlyCredits:limit,used,remaining:Math.max(0,limit-used)+prepaid,prepaidBalance:prepaid,period:month,keyHint:f.d.keyHint});
   }
   if(p==='/api/keys/revoke'&&request.method==='POST'){
