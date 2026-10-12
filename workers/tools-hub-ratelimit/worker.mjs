@@ -69,13 +69,13 @@ export default{async fetch(request,env){
     if(!kd)return json({title:'Unauthorized',status:401,detail:'Invalid API key.'},401);
     const tier=kd.cancelled_at?'free':(kd.tier||'free');
     const limit=LIMITS[tier]||1000;
-    const uKey='cr:'+kd._h+':'+month();
+    const acct=kd.account?String(kd.account).replace(/^kh:|^oa:/,''):kd._h;const uKey='cr:'+acct+':'+month();
     const used=parseInt(await env.RATE_KV.get(uKey)||'0');
-    const prepaid=parseInt(await env.RATE_KV.get('prepaid:'+kd._h)||'0');
+    const prepaid=parseInt(await env.RATE_KV.get('prepaid:'+acct)||'0');
     if(cost>limit-used+prepaid)return json({title:'Payment Required',status:402,detail:'Insufficient credits for this call.',used,monthlyLimit:limit,prepaid,needed:cost},402);
     const rem=limit-used;
     if(cost<=rem)await env.RATE_KV.put(uKey,String(used+cost),{expirationTtl:2764800});
-    else{await env.RATE_KV.put(uKey,String(limit),{expirationTtl:2764800});await env.RATE_KV.put('prepaid:'+kd._h,String(prepaid-(cost-Math.max(0,rem))));}
+    else{await env.RATE_KV.put(uKey,String(limit),{expirationTtl:2764800});await env.RATE_KV.put('prepaid:'+acct,String(prepaid-(cost-Math.max(0,rem))));}
     headersOut={'X-Credits-Used':String(used+cost),'X-Credits-Limit':String(limit),'X-Credits-Cost':String(cost)};
   }else{
     if(isNet)return json({title:'Unauthorized',status:401,detail:'This tool fetches external URLs and requires an API key in the X-API-Key header. Free keys: https://toolsthatdontupload.com/api-keys/'},401);
