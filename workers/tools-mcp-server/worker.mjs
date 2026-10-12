@@ -220,7 +220,7 @@ export default{async fetch(request,env){
         var apiKey2=request.headers.get('x-api-key')||(request.headers.get('authorization')||'').replace(/^Bearer\s+/i,'');
         var ip2=request.headers.get('cf-connecting-ip')||'unknown';
         if(!args.tool||!(CATALOG_BY_NAME[args.tool]||NAME_TO_API[args.tool])){result={error:'Unknown tool: '+args.tool};}
-        else{var out=await callTool(args.tool,args.arguments||{},{env:env,ip:ip2,key:apiKey2,aiKey:request.headers.get('x-ai-key')||''});if(!apiKey2&&(out.status===401||out.status===429))return unauthorized(out.status===401?'This tool needs an account. Sign in to continue.':'Anonymous daily limit reached. Sign in for your own quota.');result=out.data;var __egress=out.egress||'none';if(out.status>=400&&result&&!result.error)result={error:(result.detail||result.title||('HTTP '+out.status)),details:result};}
+        else{var out=await callTool(args.tool,args.arguments||{},{env:env,ip:ip2,key:apiKey2,aiKey:request.headers.get('x-ai-key')||''});if(!apiKey2&&(out.status===401||out.status===429)&&!(out.status===401&&request.headers.get('x-ai-key')))return unauthorized(out.status===401?'This tool needs an account. Sign in to continue.':'Anonymous daily limit reached. Sign in for your own quota.');result=out.data;var __egress=out.egress||'none';if(out.status>=400&&result&&!result.error)result={error:(result.detail||result.title||('HTTP '+out.status)),details:result};}
       }
       else if(name==='list_categories'){
         result={categories:CATEGORIES,totalTools:CATALOG.length};
