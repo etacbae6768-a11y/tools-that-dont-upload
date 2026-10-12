@@ -42,3 +42,10 @@ Note: this repository is a documentation snapshot, not the full deployed source.
 Listed in the [Claude Market MCP directory](https://www.claudemarket.ai/mcp)
 
 MIT License
+
+## Repository layout
+
+- `workers/` — source of the production Cloudflare Workers (MCP server, gateway, keys, Korean tools, documents). Deployed only by GitHub Actions (`.github/workflows/deploy.yml`) with build provenance attestations; the live commit is shown at https://toolsthatdontupload.com/mcp and https://toolsthatdontupload.com/transparency/.
+- `plugin/` — Claude plugin (hosted connector + offline local server + 2 skills).
+- `local/` — offline MCP bundle source (`.mcpb`, release `local-v1.0.0`).
+- `server.json` — MCP Registry metadata.
