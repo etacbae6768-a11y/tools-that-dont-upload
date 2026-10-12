@@ -6,8 +6,14 @@ MCP server and REST API for data, text, code, PDF and web tasks. Requests are pr
 
 - MCP endpoint (Streamable HTTP): https://toolsthatdontupload.com/mcp (v1.5.0)
 - MCP tools: `search_tools`, `run_tool`, `list_categories` (they search and run the REST catalog)
-- REST API: https://toolsthatdontupload.com/openapi.json (482 endpoints, generated)
+- REST API: https://toolsthatdontupload.com/openapi.json (490 endpoints, generated; every documented example is tested)
 - Network tools (fetch URL, DNS, WHOIS, SSL) need an `X-API-Key` header. Free key: https://toolsthatdontupload.com/api-keys/
+
+## Korean tools
+Romanization, amounts in Korean words (일금 ...원정), particles (조사), initial consonants (초성), business-number checksum, personal-data masking.
+
+## Files through MCP
+PDF tools accept `file_base64` / `files_base64` (max 10 MB) and return `file_base64`.
 
 ## Quick start
 
