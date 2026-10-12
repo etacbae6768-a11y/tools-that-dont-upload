@@ -1,0 +1,21 @@
+{
+  "name": "tools-that-dont-upload",
+  "displayName": "Tools That Don't Upload",
+  "version": "1.0.0",
+  "description": "Data, text, PDF, web and Korean business-document tools for Claude. A hosted connector plus an offline local server; requests are not stored.",
+  "author": {
+    "name": "Park Jihoon",
+    "url": "https://toolsthatdontupload.com",
+    "email": "hello@toolsthatdontupload.com"
+  },
+  "homepage": "https://toolsthatdontupload.com",
+  "repository": "https://github.com/etacbae6768-a11y/tools-that-dont-upload",
+  "license": "MIT",
+  "keywords": [
+    "pdf",
+    "json",
+    "korean",
+    "documents",
+    "privacy"
+  ]
+}
