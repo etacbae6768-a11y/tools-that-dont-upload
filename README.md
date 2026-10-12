@@ -1,5 +1,7 @@
 # Tools That Don't Upload
 
+[![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/etacbae6768-a11y/tools-that-dont-upload)
+
 MCP server and REST API for data, text, code, PDF and web tasks. Requests are processed in memory and not stored.
 
 - MCP endpoint (Streamable HTTP): https://toolsthatdontupload.com/mcp (v1.5.0)
