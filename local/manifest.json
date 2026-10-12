@@ -1,0 +1,139 @@
+{
+  "manifest_version": "0.2",
+  "name": "tools-that-dont-upload-local",
+  "display_name": "Tools That Don't Upload (local)",
+  "version": "1.0.0",
+  "description": "Offline tools for Claude: Korean text and business documents, PDF merge/split/rotate, hashing. Nothing is uploaded.",
+  "long_description": "A local MCP server that runs entirely on your computer. It makes no network requests. Includes Korean tools (romanization, amounts in words, particles, initial consonants, business-number checksum, personal-data masking), Korean business documents (견적서, 거래명세서 as XLSX; 차용증, 표준근로계약서 as DOCX), PDF tools using local file paths (merge, extract pages, rotate, info), and utilities (hash, Base64, UUID, JSON format, text case, password generator). Output files are saved to ~/Downloads by default. Document templates are general forms, not legal advice.",
+  "author": {
+    "name": "Park Jihoon (Tools That Don't Upload)",
+    "email": "hello@toolsthatdontupload.com",
+    "url": "https://toolsthatdontupload.com"
+  },
+  "homepage": "https://toolsthatdontupload.com",
+  "documentation": "https://toolsthatdontupload.com/docs/mcp/",
+  "support": "https://toolsthatdontupload.com/contact/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/etacbae6768-a11y/tools-that-dont-upload"
+  },
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "ko_romanize",
+      "description": "Romanize Korean text (Revised Romanization, syllable by syllable, as used for personal names)."
+    },
+    {
+      "name": "ko_amount_words",
+      "description": "Write an amount in Korean words, e.g. 1234000 -> 일금 일백이십삼만사천원정."
+    },
+    {
+      "name": "ko_josa",
+      "description": "Attach the correct particle (은/는, 이/가, 을/를, 과/와, 으로/로 ...)."
+    },
+    {
+      "name": "ko_chosung",
+      "description": "Extract initial consonants (초성)."
+    },
+    {
+      "name": "kr_business_number",
+      "description": "Validate a Korean business registration number checksum (does not confirm registration)."
+    },
+    {
+      "name": "ko_pii_mask",
+      "description": "Mask resident registration numbers, phone numbers, emails and card numbers in text."
+    },
+    {
+      "name": "text_case",
+      "description": "Convert case: upper, lower, title, sentence, camel, pascal, snake, kebab, constant, dot."
+    },
+    {
+      "name": "password_gen",
+      "description": "Generate random passwords locally."
+    },
+    {
+      "name": "hash",
+      "description": "Hash text or a local file with sha256 (default), sha1, sha512 or md5."
+    },
+    {
+      "name": "base64",
+      "description": "Encode or decode Base64 (UTF-8)."
+    },
+    {
+      "name": "uuid",
+      "description": "Generate random UUID v4 values."
+    },
+    {
+      "name": "json_format",
+      "description": "Pretty-print or minify JSON and report syntax errors."
+    },
+    {
+      "name": "pdf_merge",
+      "description": "Merge local PDF files into one. Files never leave this computer."
+    },
+    {
+      "name": "pdf_info",
+      "description": "Page count and metadata of a local PDF."
+    },
+    {
+      "name": "pdf_extract_pages",
+      "description": "Save selected pages of a local PDF as a new PDF (e.g. \"1-3,5\")."
+    },
+    {
+      "name": "pdf_rotate",
+      "description": "Rotate all pages of a local PDF by 90/180/270 degrees."
+    },
+    {
+      "name": "kr_quote",
+      "description": "Create a Korean quotation (견적서) with VAT and amount in words."
+    },
+    {
+      "name": "kr_transaction_statement",
+      "description": "Create a Korean transaction statement (거래명세서)."
+    },
+    {
+      "name": "kr_loan_agreement",
+      "description": "Create a Korean IOU / loan agreement (차용증). General template, not legal advice."
+    },
+    {
+      "name": "kr_employment_contract",
+      "description": "Create a Korean standard employment contract (표준근로계약서). General template, not legal advice."
+    }
+  ],
+  "tools_generated": false,
+  "keywords": [
+    "pdf",
+    "korean",
+    "hangul",
+    "offline",
+    "privacy",
+    "xlsx",
+    "docx",
+    "hash"
+  ],
+  "license": "MIT",
+  "privacy_policies": [
+    "https://toolsthatdontupload.com/privacy/"
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}
