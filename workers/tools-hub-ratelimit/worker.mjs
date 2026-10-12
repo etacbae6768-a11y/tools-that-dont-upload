@@ -2,7 +2,7 @@
 const NET_MAP={"/api/web-fetch":"B13","/api/url-info":"B13","/api/dns-lookup":"EXP","/api/ssl-check":"EXP","/api/http-headers":"EXP","/api/rss-parse":"EXP","/api/meta-extract":"MISS","/api/sitemap-parse":"MISS","/api/link-check":"EXP2","/api/open-graph":"EXP2","/api/http-redirect":"REDIR","/api/whois":"WHOIS","/api/cors-test":"B7B","/api/sri-hash":"B7A","/api/security-headers":"B7A","/api/webhook-test":"B8A","/api/lighthouse-score":"B3","/api/favicon":"B3","/api/tech-detect":"B3","/api/canonical-url":"B3","/api/domain-age":"B3"};
 const AI_MAP={"/api/ai-translate":"AI","/api/ai-summarize":"AI","/api/ai-ocr":"AI"};
 const FILE_EPS=new Set(["/api/pdf-merge","/api/pdf-split","/api/pdf-rotate","/api/pdf-watermark","/api/pdf-metadata","/api/pdf-extract"]);
-const COST={net:20,file:60,'/api/ai-translate':50,'/api/ai-summarize':50,'/api/ai-ocr':100,'/api/ai-image':200};
+const COST={net:20,file:60,'/api/ai-translate':50,'/api/ai-summarize':50,'/api/ai-ocr':100};
 const LIMITS={free:1000,dev:100000,business:500000};
 const C={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-API-Key','Access-Control-Expose-Headers':'X-Credits-Used,X-Credits-Limit,X-Credits-Cost,Retry-After'};
 const day=()=>new Date().toISOString().slice(0,10);
@@ -70,6 +70,10 @@ export default{async fetch(request,env){
     const tier=kd.cancelled_at?'free':(kd.tier||'free');
     const limit=LIMITS[tier]||1000;
     const acct=kd.account?String(kd.account).replace(/^kh:|^oa:/,''):kd._h;const uKey='cr:'+acct+':'+month();
+    let freeUsed=false;
+    if(isFile||isAI){const fcat=isFile?'file':'ai';const flim=isFile?20:10;const fk='kfree:'+fcat+':'+acct+':'+day();const fn=parseInt(await env.RATE_KV.get(fk)||'0');
+      if(fn<flim){await env.RATE_KV.put(fk,String(fn+1),{expirationTtl:90000});freeUsed=true;headersOut={'X-Credits-Cost':'0','X-Free-Daily-Limit':String(flim),'X-Free-Daily-Remaining':String(flim-fn-1)};}}
+    if(!freeUsed){
     const used=parseInt(await env.RATE_KV.get(uKey)||'0');
     const prepaid=parseInt(await env.RATE_KV.get('prepaid:'+acct)||'0');
     if(cost>limit-used+prepaid)return json({title:'Payment Required',status:402,detail:'Insufficient credits for this call.',used,monthlyLimit:limit,prepaid,needed:cost},402);
@@ -77,6 +81,7 @@ export default{async fetch(request,env){
     if(cost<=rem)await env.RATE_KV.put(uKey,String(used+cost),{expirationTtl:2764800});
     else{await env.RATE_KV.put(uKey,String(limit),{expirationTtl:2764800});await env.RATE_KV.put('prepaid:'+acct,String(prepaid-(cost-Math.max(0,rem))));}
     headersOut={'X-Credits-Used':String(used+cost),'X-Credits-Limit':String(limit),'X-Credits-Cost':String(cost)};
+    }
   }else{
     if(isNet)return json({title:'Unauthorized',status:401,detail:'This tool fetches external URLs and requires an API key in the X-API-Key header. Free keys: https://toolsthatdontupload.com/api-keys/'},401);
     const cat=isFile?'file':'ai';const lim=isFile?20:10;
@@ -104,7 +109,7 @@ export default{async fetch(request,env){
   if(isNet){const t=bodyObj.url||bodyObj.target||bodyObj.feedUrl||bodyObj.domain||bodyObj.host||'';let host='';try{host=new URL(/^https?:/i.test(t)?t:'https://'+t).hostname;}catch(e){}
     const fixed={'/api/dns-lookup':'cloudflare-dns.com','/api/whois':'rdap.org (or rdap.verisign.com)','/api/domain-age':'rdap.org'};egress=fixed[p]?(fixed[p]+(host?'; query='+host:'')):(host||'user-supplied host');}
   else if(isAI)egress='api.cloudflare.com (Workers AI)';
-  out.headers.set('X-Egress',egress);out.headers.set('Access-Control-Expose-Headers','X-Credits-Used,X-Credits-Limit,X-Credits-Cost,Retry-After,X-Egress,RateLimit-Limit,RateLimit-Remaining');
+  out.headers.set('X-Egress',egress);out.headers.set('Access-Control-Expose-Headers','X-Credits-Used,X-Credits-Limit,X-Credits-Cost,X-Free-Daily-Limit,X-Free-Daily-Remaining,Retry-After,X-Egress,RateLimit-Limit,RateLimit-Remaining');
   for(const [k,v] of Object.entries({...C,...headersOut}))out.headers.set(k,v);
   return out;
 }};
