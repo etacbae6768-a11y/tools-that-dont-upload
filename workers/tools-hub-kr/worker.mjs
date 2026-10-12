@@ -75,6 +75,36 @@ async function xlsxRead(b){
  return {sheets:out,sheetNames:sheets.map(x=>x.name),date1904:d1904,note:'Formulas are returned as their last saved values. Merged cells keep the value in the top-left cell only.'};}
 
 
+// ---- docx-read: self-developed .docx text/structure reader (uses xrUnzip/xrUnesc from xlsx-read) ----
+function dxRunText(xml){let out='';const re=/<w:(t|tab|br|cr|noBreakHyphen|sym)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/w:t>)/g;let m;while((m=re.exec(xml))){if(m[1]==='t')out+=xrUnesc(m[3]||'');else if(m[1]==='tab')out+='\t';else if(m[1]==='br'||m[1]==='cr')out+='\n';else if(m[1]==='noBreakHyphen')out+='-';}return out;}
+function dxPara(pxml,styles,numbering){const sm=pxml.match(/<w:pStyle w:val="([^"]+)"/);const sid=sm?sm[1]:null;const sname=sid?(styles[sid]||sid):null;
+ let level=null;const hm=(sname||'').match(/^(?:heading|Heading|제목)\s*(\d)$/)||(sid||'').match(/^Heading(\d)$/i);if(hm)level=+hm[1];if(/^Title$/i.test(sname||''))level=0;
+ const num=/<w:numPr>/.test(pxml);const ilvl=+(pxml.match(/<w:ilvl w:val="(\d+)"/)||[0,0])[1];const numId=(pxml.match(/<w:numId w:val="(\d+)"/)||[])[1];
+ const runs=[...pxml.matchAll(/<w:r\b[^>]*>([\s\S]*?)<\/w:r>|<w:hyperlink\b[^>]*>([\s\S]*?)<\/w:hyperlink>/g)];let text='';let md='';
+ for(const r of runs){const inner=r[1]!==undefined?r[1]:r[2];if(r[2]!==undefined){const t=dxRunText(inner);text+=t;md+=t;continue;}const t=dxRunText(inner);if(!t)continue;text+=t;const b=/<w:b(?:\s+w:val="(?:1|true|on)")?\s*\/>/.test(inner),i=/<w:i(?:\s+w:val="(?:1|true|on)")?\s*\/>/.test(inner);const core=t.trim();if(!core||(!b&&!i)){md+=t;}else{const mk=(b?'**':'')+(i?'*':'');const lead=t.match(/^\s*/)[0],trail=t.match(/\s*$/)[0];md+=lead+mk+core+mk.split('').reverse().join('')+trail;}}
+ return {style:sname,heading:level,list:num?{level:ilvl,ordered:numbering[numId]==='decimal'}:null,text,md};}
+async function docxRead(b){if(typeof b.file_base64!=='string'||!b.file_base64)throw new Error('file_base64 is required (the .docx file, base64-encoded).');
+ const u=xrB64(b.file_base64);if(u.length>10*1024*1024)throw new Error('File too large (max 10 MB).');
+ const z=await xrUnzip(u);const doc=await z.read('word/document.xml');if(!doc)throw new Error('Not a DOCX file (word/document.xml missing). Old .doc files are not supported.');
+ const stx=(await z.read('word/styles.xml'))||'';const styles={};for(const m of stx.matchAll(/<w:style\b[^>]*w:styleId="([^"]+)"[^>]*>[\s\S]*?<w:name w:val="([^"]+)"/g))styles[m[1]]=m[2];
+ const nx=(await z.read('word/numbering.xml'))||'';const absFmt={};for(const m of nx.matchAll(/<w:abstractNum\b[^>]*w:abstractNumId="(\d+)"[^>]*>([\s\S]*?)<\/w:abstractNum>/g)){const f=(m[2].match(/<w:numFmt w:val="([^"]+)"/)||[])[1];absFmt[m[1]]=f;}
+ const numbering={};for(const m of nx.matchAll(/<w:num\b[^>]*w:numId="(\d+)"[^>]*>[\s\S]*?<w:abstractNumId w:val="(\d+)"/g))numbering[m[1]]=absFmt[m[2]];
+ const body=(doc.match(/<w:body>([\s\S]*)<\/w:body>/)||[,''])[1];const blocks=[];const tables=[];const mdOut=[];const textOut=[];
+ const re=/<w:tbl>([\s\S]*?)<\/w:tbl>|<w:p\b[^>]*?(?:\/>|>([\s\S]*?)<\/w:p>)/g;let m;
+ while((m=re.exec(body))){if(m[1]!==undefined){const rows=[...m[1].matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)].map(tr=>[...tr[1].matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)].map(tc=>[...tc[1].matchAll(/<w:p\b[^>]*?(?:\/>|>([\s\S]*?)<\/w:p>)/g)].map(p=>dxRunText(p[1]||'')).join('\n').trim()));
+   tables.push(rows);blocks.push({type:'table',index:tables.length-1,rows});
+   if(rows.length){const w=Math.max(...rows.map(r=>r.length));const pad=r=>{const a=r.slice();while(a.length<w)a.push('');return a.map(c=>c.replace(/\|/g,'\\|').replace(/\n/g,' '));};mdOut.push('| '+pad(rows[0]).join(' | ')+' |','| '+new Array(w).fill('---').join(' | ')+' |',...rows.slice(1).map(r=>'| '+pad(r).join(' | ')+' |'),'');}
+   textOut.push(rows.map(r=>r.join('\t')).join('\n'));continue;}
+  const p=dxPara(m[2]||'',styles,numbering);if(!p.text.trim()&&!p.heading){textOut.push('');continue;}
+  blocks.push({type:p.heading!==null?'heading':p.list?'list_item':'paragraph',level:p.heading??(p.list?p.list.level:undefined),style:p.style||undefined,text:p.text});
+  textOut.push(p.text);
+  if(p.heading!==null)mdOut.push('#'.repeat(Math.max(1,p.heading))+' '+p.text.trim(),'');else if(p.list)mdOut.push('  '.repeat(p.list.level)+(p.list.ordered?'1. ':'- ')+p.md.trim());else mdOut.push(p.md.trim(),'');}
+ const core=(await z.read('docProps/core.xml'))||'';const meta={title:xrUnesc((core.match(/<dc:title>([\s\S]*?)<\/dc:title>/)||[,''])[1])||null,creator:xrUnesc((core.match(/<dc:creator>([\s\S]*?)<\/dc:creator>/)||[,''])[1])||null,modified:(core.match(/<dcterms:modified[^>]*>([\s\S]*?)<\/dcterms:modified>/)||[,null])[1]};
+ const text=textOut.join('\n').replace(/\n{3,}/g,'\n\n').trim();const markdown=mdOut.join('\n').replace(/\n{3,}/g,'\n\n').trim();
+ const res={text,markdown,characters:text.replace(/\s/g,'').length,paragraphs:blocks.filter(x=>x.type!=='table').length,tables,meta,note:'Text, headings, lists and tables are extracted. Images, text boxes, footnotes, headers/footers and tracked-change history are not included.'};
+ if(b.blocks)res.blocks=blocks;return res;}
+
+
 // ---- kr-tax-invoice-parse: self-developed parser for the NTS standard e-tax invoice XML ----
 function tiUnesc(s){return s.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&#x([0-9a-f]+);/gi,(m,h)=>String.fromCodePoint(parseInt(h,16))).replace(/&#(\d+);/g,(m,d)=>String.fromCodePoint(+d)).replace(/&amp;/g,'&');}
 function tiParse(xml){xml=xml.replace(/^\uFEFF/,'').replace(/<\?[\s\S]*?\?>/g,'').replace(/<!--[\s\S]*?-->/g,'').replace(/<!DOCTYPE[\s\S]*?>/gi,'');
@@ -147,6 +177,7 @@ const ROUTES={
  '/api/kr-holidays':b=>{const r=krHolidays(b);return r.error?P(r.status||400,'Bad Request',r.error):J(r);},
  '/api/kr-business-days':b=>{const r=krBusinessDays(b);return r.error?P(r.status||400,'Bad Request',r.error):J(r);},
  '/api/kr-tax-invoice-parse':b=>{try{return J(taxInvoiceParse(b));}catch(e){return P(400,'Bad Request',e.message);}},
+ '/api/docx-read':async b=>{try{return J(await docxRead(b));}catch(e){return P(400,'Bad Request',e.message);}},
  '/api/xlsx-read':async b=>{try{return J(await xlsxRead(b));}catch(e){return P(400,'Bad Request',e.message);}},
  '/api/ko-romanize':b=>{if(typeof b.text!=='string'||!b.text)return P(400,'Bad Request','Send {"text":"박지훈"}');return J({romanized:romanize(b.text,b.capitalize!==false),system:'Revised Romanization, syllable by syllable (as used for personal names); sound-change rules between syllables are not applied',original:b.text});},
  '/api/ko-amount-words':b=>{const n=Number(String(b.amount??'').replace(/[,\s원]/g,''));if(!Number.isFinite(n)||n<0||!Number.isInteger(n)||n>=1e20)return P(400,'Bad Request','Send {"amount":1234000} (non-negative integer)');return J({amount:n,formal:'일금 '+amountWords(n,true)+'원정',plain:amountWords(n,false)+' 원',hangul:amountWords(n,true)});},
