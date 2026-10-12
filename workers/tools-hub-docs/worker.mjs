@@ -53,7 +53,50 @@ function quoteRows(kind,b){const items=needItems(b);const t=totals(items,b);cons
  rows.push([],['','','','','공급가액',{v:t.supply,s:2}],['','','','','부가세',{v:t.vat,s:2}],['','','','','합계',{v:t.total,s:2}]);
  if(b.memo)rows.push([],['비고',String(b.memo)]);if(kind==='견적서')rows.push([],['유효기간',b.valid_until||'발행일로부터 30일']);
  return{rows,t};}
+
+// ---- kr-tax-invoice-upload: builds the HomeTax "전자(세금)계산서 일괄발급" upload sheet (data from row 7). Our own code. ----
+const TU_HDR=["전자(세금)계산서 종류\n(01:일반, 02:영세율)","작성일자","공급자 등록번호\n(\"-\" 없이 입력)","공급자\n 종사업장번호","공급자 상호","공급자 성명","공급자 사업장주소","공급자 업태","공급자 종목","공급자 이메일","공급받는자 등록번호\n(\"-\" 없이 입력)","공급받는자 \n종사업장번호","공급받는자 상호 ","공급받는자 성명","공급받는자 사업장주소","공급받는자 업태","공급받는자 종목","공급받는자 이메일1","공급받는자 이메일2","공급가액\n합계","세액\n합계","비고","일자1\n(2자리, 작성년월 제외)","품목1","규격1","수량1","단가1","공급가액1","세액1","품목비고1","일자2\n(2자리, 작성년월 제외)","품목2","규격2","수량2","단가2","공급가액2","세액2","품목비고2","일자3\n(2자리, 작성년월 제외)","품목3","규격3","수량3","단가3","공급가액3","세액3","품목비고3","일자4\n(2자리, 작성년월 제외)","품목4","규격4","수량4","단가4","공급가액4","세액4","품목비고4","현금","수표","어음","외상미수금","영수(01),\n청구(02)"];
+function tuBytes(s){let n=0;for(const ch of String(s??''))n+=ch.charCodeAt(0)>127?2:1;return n;}
+function tuDigits(s){return String(s??'').replace(/\D/g,'');}
+function tuBizOk(n){const d=tuDigits(n).split('').map(Number);if(d.length!==10)return false;const w=[1,3,7,1,3,7,1,3,5];let s=0;for(let i=0;i<9;i++)s+=d[i]*w[i];s+=Math.floor(d[8]*5/10);return (10-s%10)%10===d[9];}
+function tuNum(v){if(v===null||v===undefined||v==='')return null;const n=Number(String(v).replace(/,/g,''));return Number.isFinite(n)?n:NaN;}
+function taxInvoiceUpload(b){const inv=Array.isArray(b.invoices)?b.invoices:null;if(!inv||!inv.length)throw new Error('invoices must be a non-empty array.');if(inv.length>100)throw new Error('HomeTax accepts at most 100 invoices per upload file.');
+ const errors=[],warnings=[],rows=[];let sumSupply=0,sumTax=0;
+ inv.forEach((v,ix)=>{const E=m=>errors.push('invoice '+(ix+1)+': '+m),W=m=>warnings.push('invoice '+(ix+1)+': '+m);const s=v.supplier||{},r=v.buyer||{};
+  const type=String(v.type??'01').padStart(2,'0');if(!['01','02'].includes(type))E('type must be "01" (일반) or "02" (영세율)');
+  const date=tuDigits(v.date);const dt=new Date(date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6,8)+'T00:00:00Z');if(date.length!==8||isNaN(dt)||dt.toISOString().slice(0,10).replace(/-/g,'')!==date)E('date must be a valid YYYY-MM-DD or YYYYMMDD');
+  const sb=tuDigits(s.business_number);if(sb.length!==10)E('supplier.business_number must have 10 digits');else if(!tuBizOk(sb))E('supplier.business_number checksum is invalid');
+  const rb=tuDigits(r.business_number);if(!(rb.length===10||rb.length===13))E('buyer.business_number must be 10 digits (business), 13 digits (resident) or 9999999999999 (foreigner)');else if(rb.length===10&&!tuBizOk(rb))E('buyer.business_number checksum is invalid');
+  if(rb==='9999999999999'&&!v.note)E('foreign buyer: put the alien registration or passport number in note');
+  const req=[['supplier.name',s.name],['supplier.representative',s.representative],['buyer.name',r.name],['buyer.representative',r.representative]];req.forEach(([k,x])=>{if(!x||!String(x).trim())E(k+' is required');});
+  const lim=[['supplier.name',s.name,70],['supplier.representative',s.representative,30],['supplier.address',s.address,150],['supplier.business_type',s.business_type,40],['supplier.business_item',s.business_item,60],['supplier.email',s.email,40],['buyer.name',r.name,70],['buyer.representative',r.representative,30],['buyer.address',r.address,150],['buyer.business_type',r.business_type,40],['buyer.business_item',r.business_item,60],['buyer.email',r.email,40],['buyer.email2',r.email2,40],['note',v.note,150]];
+  lim.forEach(([k,x,m])=>{if(x&&tuBytes(x)>m)E(k+' is '+tuBytes(x)+' bytes; HomeTax allows '+m+' (Korean characters count as 2)');});
+  if(s.branch_id&&!/^\d{4}$/.test(String(s.branch_id)))E('supplier.branch_id must be 4 digits');if(r.branch_id&&!/^\d{4}$/.test(String(r.branch_id)))E('buyer.branch_id must be 4 digits');
+  const items=Array.isArray(v.items)?v.items:[];if(items.length<1||items.length>4)E('items must have 1 to 4 lines (HomeTax upload limit)');
+  let ts=0,tt=0;const itemCells=[];
+  items.slice(0,4).forEach((it,k)=>{const q=tuNum(it.quantity),up=tuNum(it.unit_price);let sa=tuNum(it.supply_amount);let ta=tuNum(it.tax_amount);
+   if(!it.name||!String(it.name).trim())E('item '+(k+1)+': name is required');if(it.name&&tuBytes(it.name)>100)E('item '+(k+1)+': name exceeds 100 bytes');if(it.spec&&tuBytes(it.spec)>60)E('item '+(k+1)+': spec exceeds 60 bytes');
+   if(sa===null&&q!==null&&up!==null&&!isNaN(q)&&!isNaN(up)){sa=Math.round(q*up);W('item '+(k+1)+': supply_amount computed as quantity × unit_price = '+sa);}
+   if(sa===null||isNaN(sa))E('item '+(k+1)+': supply_amount is required (or quantity and unit_price)');
+   if(ta===null){ta=type==='02'?0:Math.floor((sa||0)*0.1);W('item '+(k+1)+': tax_amount computed as '+(type==='02'?'0 (영세율)':'10% rounded down = '+ta));}
+   if(isNaN(ta))E('item '+(k+1)+': tax_amount must be a number');if(type==='02'&&ta)E('item '+(k+1)+': 영세율 (02) invoices must have tax_amount 0');
+   if(q!==null&&!isNaN(q)&&!/^\d{1,10}(\.\d{1,2})?$/.test(String(Math.abs(q))))E('item '+(k+1)+': quantity allows 10 digits and 2 decimals');
+   if(up!==null&&!isNaN(up)&&!/^\d{1,13}(\.\d{1,2})?$/.test(String(Math.abs(up))))E('item '+(k+1)+': unit_price allows 13 digits and 2 decimals');
+   if(q!==null&&up!==null&&sa!==null&&!isNaN(q*up)&&Math.abs(q*up-sa)>1)W('item '+(k+1)+': quantity × unit_price ('+(q*up)+') differs from supply_amount ('+sa+')');
+   let day=it.day!==undefined&&it.day!==null&&it.day!==''?String(it.day).padStart(2,'0'):date.slice(6,8);if(!/^\d{2}$/.test(day)||+day<1||+day>31)E('item '+(k+1)+': day must be 01-31');
+   ts+=sa||0;tt+=ta||0;itemCells.push(day,String(it.name??''),String(it.spec??''),q===null?'':String(q),up===null?'':String(up),String(sa??''),String(ta??''),String(it.note??''));});
+  while(itemCells.length<32)itemCells.push('');
+  const pay=v.payment||{};const pv=k=>{const x=tuNum(pay[k]);return x===null||isNaN(x)?'':String(x);};
+  const purpose=String(v.purpose??'').padStart(2,'0');if(!['01','02'].includes(purpose))E('purpose is required: "01" 영수 (paid) or "02" 청구 (not yet paid)');
+  const paySum=['cash','check','bill','receivable'].reduce((a,k)=>a+(tuNum(pay[k])||0),0);if(paySum&&paySum!==ts+tt)W('payment amounts ('+paySum+') do not add up to the total ('+(ts+tt)+')');
+  sumSupply+=ts;sumTax+=tt;
+  rows.push([type,date,sb,String(s.branch_id??''),String(s.name??''),String(s.representative??''),String(s.address??''),String(s.business_type??''),String(s.business_item??''),String(s.email??''),rb,String(r.branch_id??''),String(r.name??''),String(r.representative??''),String(r.address??''),String(r.business_type??''),String(r.business_item??''),String(r.email??''),String(r.email2??''),String(ts),String(tt),String(v.note??''),...itemCells,pv('cash'),pv('check'),pv('bill'),pv('receivable'),purpose]);});
+ return {errors,warnings,rows,totals:{invoices:inv.length,supply_amount:sumSupply,tax_amount:sumTax,total:sumSupply+sumTax}};}
+
 const ROUTES={
+ '/api/kr-tax-invoice-upload':b=>{const r=taxInvoiceUpload(b);if(r.errors.length)throw new Error('Validation failed: '+r.errors.join(' | '));
+  const rows=[['엑셀 업로드 양식(전자세금계산서-일반(영세율)) - 100건 이하'],['○ 홈택스 > 전자(세금)계산서 일괄발급(엑셀 업로드)용 파일입니다. 실제 DATA는 7행부터 들어 있습니다.'],['○ 업로드 전에 공급자·공급받는자 정보, 금액, 영수/청구 구분을 확인하세요. 홈택스 검증 결과가 최종 기준입니다.'],['○ Tools That Don\'t Upload에서 생성 (홈택스 공식 양식의 열 구성과 동일).'],[''],TU_HDR,...r.rows];
+  return{bytes:xlsx('엑셀업로드양식',rows,new Array(59).fill(14),[]),type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',name:'hometax-upload.xlsx',meta:Object.assign({},r.totals,{warnings:r.warnings.length})};},
  '/api/kr-quote':b=>{const{rows,t}=quoteRows('견적서',b);return{bytes:xlsx('견적서',rows,[8,26,14,8,12,14,16],['A1:G1']),type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',name:'quote.xlsx',meta:t};},
  '/api/kr-transaction-statement':b=>{const{rows,t}=quoteRows('거래명세서',b);return{bytes:xlsx('거래명세서',rows,[8,26,14,8,12,14,16],['A1:G1']),type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',name:'transaction-statement.xlsx',meta:t};},
  '/api/kr-loan-agreement':b=>{const a=Number(b.amount);if(!b.lender||!b.borrower||!Number.isFinite(a)||a<=0)throw new Error('lender, borrower and amount are required');const L=b.lender,B=b.borrower;
