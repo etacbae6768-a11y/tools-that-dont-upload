@@ -5,7 +5,7 @@ const RENDER_MAP={"/api/html-to-pdf":"RENDER","/api/markdown-to-pdf":"RENDER","/
 const FILE_EPS=new Set(["/api/pdf-merge","/api/pdf-split","/api/pdf-rotate","/api/pdf-watermark","/api/pdf-metadata","/api/pdf-extract"]);
 const COST={net:20,file:60,'/api/ai-translate':50,'/api/ai-summarize':50,'/api/ai-ocr':100};
 const LIMITS={free:1000,dev:100000,business:500000};
-const C={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-API-Key','Access-Control-Expose-Headers':'X-Credits-Used,X-Credits-Limit,X-Credits-Cost,Retry-After'};
+const C={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-API-Key,X-AI-Key','Access-Control-Expose-Headers':'X-Credits-Used,X-Credits-Limit,X-Credits-Cost,Retry-After'};
 const day=()=>new Date().toISOString().slice(0,10);
 const month=()=>new Date().toISOString().slice(0,7);
 function json(d,s,extra){return new Response(JSON.stringify(d),{status:s||200,headers:{'Content-Type':'application/json',...C,...(extra||{})}});}
@@ -56,13 +56,18 @@ export default{async fetch(request,env){
   if(request.method!=='POST'&&request.method!=='GET')return json({title:'Method Not Allowed',status:405},405,{Allow:'GET, POST, OPTIONS'});
   const internal=env.INTERNAL_TOKEN&&request.headers.get('x-internal-token')===env.INTERNAL_TOKEN;
   const ip=(internal&&request.headers.get('x-client-ip'))||request.headers.get('cf-connecting-ip')||'unknown';
-  const cost=isNet?COST.net:isFile?COST.file:COST[p];
+  let cost=isNet?COST.net:isFile?COST.file:COST[p];
   if(isFile&&!isRender){const ct=request.headers.get('content-type')||'';if(!ct.includes('multipart/form-data'))return json({title:'Bad Request',status:400,detail:'This endpoint requires a multipart/form-data file upload.'},400);}
   // read body once for checks (non-file)
   let bodyText=null,bodyObj={};
-  if((!isFile||isRender)&&request.method==='POST'){bodyText=await request.text();if(isRender&&bodyText.length>2*1024*1024)return json({title:'Payload Too Large',status:413,detail:'Max 2 MB.'},413);if(bodyText){try{bodyObj=JSON.parse(bodyText);}catch(e){return json({title:'Bad Request',status:400,detail:'Body must be valid JSON.'},400);}}}
+  const isMultiAI=isAI&&(request.headers.get('content-type')||'').includes('multipart/form-data');let aiOpts={};
+  if(isMultiAI&&request.method==='POST'){try{const fd=await request.clone().formData();for(const k of ['provider','quality','model']){const v=fd.get(k);if(typeof v==='string')aiOpts[k]=v;}}catch(e){}}
+  if((!isFile||isRender)&&!isMultiAI&&request.method==='POST'){bodyText=await request.text();if(isRender&&bodyText.length>2*1024*1024)return json({title:'Payload Too Large',status:413,detail:'Max 2 MB.'},413);if(bodyText){try{bodyObj=JSON.parse(bodyText);}catch(e){return json({title:'Bad Request',status:400,detail:'Body must be valid JSON.'},400);}}}
   if(!isFile&&request.method==='GET'){url.searchParams.forEach((v,k)=>{bodyObj[k]=v;});}
   if(isNet){const bad=checkTarget(bodyObj||{});if(bad)return json({title:'Bad Request',status:400,detail:'Target rejected: '+bad+'. Only public http(s) hosts on ports 80/443 are allowed.'},400);}
+  if(isAI&&!isMultiAI)aiOpts=bodyObj||{};
+  const aiProv=String(aiOpts.provider||'').toLowerCase();const isByok=isAI&&!!request.headers.get('x-ai-key')&&(aiProv==='anthropic'||aiProv==='openai');const isHigh=isAI&&!isByok&&aiOpts.quality==='high';
+  if(isByok)cost=5;else if(isHigh)cost=150;
   const apiKey=request.headers.get('x-api-key')||(request.headers.get('authorization')||'').replace(/^Bearer\s+/i,'');
   let headersOut={};
   if(apiKey&&apiKey.startsWith('ttdu_')){
@@ -72,7 +77,7 @@ export default{async fetch(request,env){
     const limit=LIMITS[tier]||1000;
     const acct=kd.account?String(kd.account).replace(/^kh:|^oa:/,''):kd._h;const uKey='cr:'+acct+':'+month();
     let freeUsed=false;
-    if(isFile||isAI){const fcat=isFile?'file':'ai';const flim=isFile?20:10;const fk='kfree:'+fcat+':'+acct+':'+day();const fn=parseInt(await env.RATE_KV.get(fk)||'0');
+    if((isFile||isAI)&&!isHigh){const fcat=isFile?'file':'ai';const flim=isFile?20:10;const fk='kfree:'+fcat+':'+acct+':'+day();const fn=parseInt(await env.RATE_KV.get(fk)||'0');
       if(fn<flim){await env.RATE_KV.put(fk,String(fn+1),{expirationTtl:90000});freeUsed=true;headersOut={'X-Credits-Cost':'0','X-Free-Daily-Limit':String(flim),'X-Free-Daily-Remaining':String(flim-fn-1)};}}
     if(!freeUsed){
     const used=parseInt(await env.RATE_KV.get(uKey)||'0');
@@ -84,6 +89,7 @@ export default{async fetch(request,env){
     headersOut={'X-Credits-Used':String(used+cost),'X-Credits-Limit':String(limit),'X-Credits-Cost':String(cost)};
     }
   }else{
+    if(isHigh)return json({title:'Unauthorized',status:401,detail:'quality "high" uses larger AI models and needs an API key (X-API-Key). Free keys: https://toolsthatdontupload.com/api-keys/ · Or bring your own Claude/ChatGPT key: https://toolsthatdontupload.com/docs/ai-upgrade/'},401);
     if(isNet)return json({title:'Unauthorized',status:401,detail:'This tool fetches external URLs and requires an API key in the X-API-Key header. Free keys: https://toolsthatdontupload.com/api-keys/'},401);
     const cat=isFile?'file':'ai';const lim=isFile?20:10;
     const k=cat+':'+ip+':'+day();
@@ -99,7 +105,7 @@ export default{async fetch(request,env){
   const target=NET_MAP[p]||AI_MAP[p]||RENDER_MAP[p];
   if(target){
     const init={method:request.method,headers:fwdHeaders};
-    if(request.method==='POST')init.body=bodyText||'{}';
+    if(request.method==='POST')init.body=isMultiAI?request.body:(bodyText||'{}');
     if(request.method==='POST'&&!fwdHeaders.get('content-type'))fwdHeaders.set('content-type','application/json');
     resp=await env[target].fetch(new Request('https://toolsthatdontupload.com'+p+url.search,init));
   }else{
@@ -109,7 +115,7 @@ export default{async fetch(request,env){
   let egress='none';
   if(isNet){const t=bodyObj.url||bodyObj.target||bodyObj.feedUrl||bodyObj.domain||bodyObj.host||'';let host='';try{host=new URL(/^https?:/i.test(t)?t:'https://'+t).hostname;}catch(e){}
     const fixed={'/api/dns-lookup':'cloudflare-dns.com','/api/whois':'rdap.org (or rdap.verisign.com)','/api/domain-age':'rdap.org'};egress=fixed[p]?(fixed[p]+(host?'; query='+host:'')):(host||'user-supplied host');}
-  else if(isAI)egress='api.cloudflare.com (Workers AI)';
+  else if(isAI)egress=isByok?(aiProv==='anthropic'?'api.anthropic.com (your key)':'api.openai.com (your key)'):'api.cloudflare.com (Workers AI)';
   else if(isRender)egress=RENDER_MAP[p]==='RENDER'?'api.cloudflare.com (Browser Run)':'none';
   out.headers.set('X-Egress',egress);out.headers.set('Access-Control-Expose-Headers','X-Credits-Used,X-Credits-Limit,X-Credits-Cost,X-Free-Daily-Limit,X-Free-Daily-Remaining,Retry-After,X-Egress,RateLimit-Limit,RateLimit-Remaining');
   for(const [k,v] of Object.entries({...C,...headersOut}))out.headers.set(k,v);
