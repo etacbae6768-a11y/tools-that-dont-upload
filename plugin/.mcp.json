@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "tools-that-dont-upload": {
+      "type": "http",
+      "url": "https://toolsthatdontupload.com/mcp"
+    },
+    "tools-that-dont-upload-local": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/server/index.js"
+      ]
+    }
+  }
+}
