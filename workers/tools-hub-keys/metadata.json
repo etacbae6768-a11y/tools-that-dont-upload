@@ -1,0 +1,19 @@
+{
+  "main_module": "worker.mjs",
+  "compatibility_date": "2024-01-01",
+  "bindings": [
+    {
+      "type": "kv_namespace",
+      "name": "KEYS_KV",
+      "namespace_id": "e495f19b4ab94afca403db6e9b79f8df"
+    },
+    {
+      "type": "kv_namespace",
+      "name": "RATE_KV",
+      "namespace_id": "1f125da984174edabb254e8ae033b78d"
+    }
+  ],
+  "keep_bindings": [
+    "secret_text"
+  ]
+}
