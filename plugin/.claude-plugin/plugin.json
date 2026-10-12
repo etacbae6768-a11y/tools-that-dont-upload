@@ -17,5 +17,7 @@
     "korean",
     "documents",
     "privacy"
-  ]
+  ],
+  "icon": ".claude-plugin/icon.png",
+  "privacyPolicyUrl": "https://toolsthatdontupload.com/privacy/"
 }
