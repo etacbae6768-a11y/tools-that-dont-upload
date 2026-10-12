@@ -13,7 +13,7 @@ function badHost(h){
   h=(h||'').toLowerCase().replace(/\.$/,'');
   if(!h)return 'empty host';
   if(h==='localhost'||h.endsWith('.localhost')||h.endsWith('.local')||h.endsWith('.internal')||h.endsWith('.lan')||h.endsWith('.home.arpa'))return 'local hostname';
-  if(/^\[?[0-9a-f:]+\]?$/i.test(h)&&h.includes(':'))return 'IP literal not allowed';
+  if(h.includes(':'))return 'IP literal not allowed';
   if(/^\d{1,3}(\.\d{1,3}){3}$/.test(h))return 'IP literal not allowed';
   if(/^(0x[0-9a-f]+|\d+)$/i.test(h))return 'IP literal not allowed';
   if(!h.includes('.'))return 'single-label host not allowed';
@@ -31,7 +31,7 @@ function checkTarget(b){
     }
   }
   for(const f of ['domain','host','hostname']){
-    if(typeof b[f]==='string'&&b[f]){const h=b[f].replace(/^https?:\/\//,'').split('/')[0].split(':')[0];const r=badHost(h);if(r)return r;}
+    if(typeof b[f]==='string'&&b[f]){let raw=b[f].trim();if(!/^https?:\/\//i.test(raw))raw='http://'+raw;let u;try{u=new URL(raw);}catch(e){return 'invalid host in '+f;}if(u.username||u.password)return 'credentials not allowed';if(u.port&&u.port!=='80'&&u.port!=='443')return 'only ports 80/443 allowed';const r=badHost(u.hostname);if(r)return r;}
   }
   if(Array.isArray(b.urls)){for(const x of b.urls){const r=checkTarget({url:x});if(r)return r;}}
   return null;
