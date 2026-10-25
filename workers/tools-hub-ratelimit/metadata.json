@@ -3,92 +3,113 @@
   "compatibility_date": "2024-09-23",
   "bindings": [
     {
-      "type": "kv_namespace",
-      "name": "RATE_KV",
-      "namespace_id": "1f125da984174edabb254e8ae033b78d"
-    },
-    {
-      "type": "kv_namespace",
-      "name": "KEYS_KV",
-      "namespace_id": "e495f19b4ab94afca403db6e9b79f8df"
-    },
-    {
-      "type": "service",
-      "name": "B13",
-      "service": "tools-hub-batch13",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "EXP",
-      "service": "tools-hub-expanded",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "EXP2",
-      "service": "tools-hub-expanded-v2",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "MISS",
-      "service": "tools-hub-missing",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "REDIR",
-      "service": "tools-hub-redirect",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "WHOIS",
-      "service": "tools-whois",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "B7B",
-      "service": "tools-hub-batch7b",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "B7A",
-      "service": "tools-hub-batch7a",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "B8A",
-      "service": "tools-hub-batch8a",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "B3",
-      "service": "tools-hub-batch3",
-      "environment": "production"
-    },
-    {
-      "type": "service",
+      "environment": "production",
       "name": "AI",
       "service": "tools-ai",
-      "environment": "production"
+      "type": "service"
     },
     {
-      "type": "service",
-      "name": "RENDER",
-      "service": "tools-hub-render",
-      "environment": "production"
+      "environment": "production",
+      "name": "B13",
+      "service": "tools-hub-batch13",
+      "type": "service"
     },
     {
-      "type": "service",
+      "environment": "production",
+      "name": "B3",
+      "service": "tools-hub-batch3",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "B7A",
+      "service": "tools-hub-batch7a",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "B7B",
+      "service": "tools-hub-batch7b",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "B8A",
+      "service": "tools-hub-batch8a",
+      "type": "service"
+    },
+    {
+      "dataset": "ttdu_api_events",
+      "name": "EVENTS",
+      "type": "analytics_engine"
+    },
+    {
+      "environment": "production",
+      "name": "EXP",
+      "service": "tools-hub-expanded",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "EXP2",
+      "service": "tools-hub-expanded-v2",
+      "type": "service"
+    },
+    {
+      "name": "GET_QUERY_SINCE",
+      "text": "2026-10-14T15:00:00Z",
+      "type": "plain_text"
+    },
+    {
+      "name": "GET_QUERY_SUNSET",
+      "text": "2026-11-16T00:00:00Z",
+      "type": "plain_text"
+    },
+    {
+      "name": "KEYS_KV",
+      "namespace_id": "e495f19b4ab94afca403db6e9b79f8df",
+      "type": "kv_namespace"
+    },
+    {
+      "environment": "production",
+      "name": "MISS",
+      "service": "tools-hub-missing",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "PDF",
+      "service": "tools-hub-pdf",
+      "type": "service"
+    },
+    {
+      "environment": "production",
       "name": "PDFTXT",
       "service": "tools-pdf-text",
-      "environment": "production"
+      "type": "service"
+    },
+    {
+      "name": "RATE_KV",
+      "namespace_id": "1f125da984174edabb254e8ae033b78d",
+      "type": "kv_namespace"
+    },
+    {
+      "environment": "production",
+      "name": "REDIR",
+      "service": "tools-hub-redirect",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "RENDER",
+      "service": "tools-hub-render",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "WHOIS",
+      "service": "tools-whois",
+      "type": "service"
     }
   ],
   "keep_bindings": [
