@@ -3,188 +3,193 @@
   "compatibility_date": "2024-09-23",
   "bindings": [
     {
-      "type": "kv_namespace",
-      "name": "RATE_KV",
-      "namespace_id": "1f125da984174edabb254e8ae033b78d"
+      "dataset": "ttdu_api_events",
+      "name": "EVENTS",
+      "type": "analytics_engine"
     },
     {
-      "type": "kv_namespace",
       "name": "KEYS_KV",
-      "namespace_id": "e495f19b4ab94afca403db6e9b79f8df"
+      "namespace_id": "e495f19b4ab94afca403db6e9b79f8df",
+      "type": "kv_namespace"
     },
     {
-      "type": "service",
+      "name": "RATE_KV",
+      "namespace_id": "1f125da984174edabb254e8ae033b78d",
+      "type": "kv_namespace"
+    },
+    {
+      "environment": "production",
       "name": "RL",
       "service": "tools-hub-ratelimit",
-      "environment": "production"
+      "type": "service"
     },
     {
-      "type": "service",
-      "name": "S_BATCH6B",
-      "service": "tools-hub-batch6b",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH6A",
-      "service": "tools-hub-batch6a",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH7B",
-      "service": "tools-hub-batch7b",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH7A",
-      "service": "tools-hub-batch7a",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH8B",
-      "service": "tools-hub-batch8b",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH8A",
-      "service": "tools-hub-batch8a",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH10A",
-      "service": "tools-hub-batch10a",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH9B",
-      "service": "tools-hub-batch9b",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH9A",
-      "service": "tools-hub-batch9a",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH10B",
-      "service": "tools-hub-batch10b",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_INPUT_FIX",
-      "service": "tools-hub-input-fix",
-      "environment": "production"
-    },
-    {
-      "type": "service",
+      "environment": "production",
       "name": "S_AI",
       "service": "tools-ai",
-      "environment": "production"
+      "type": "service"
     },
     {
-      "type": "service",
+      "environment": "production",
+      "name": "S_BATCH10A",
+      "service": "tools-hub-batch10a",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH10B",
+      "service": "tools-hub-batch10b",
+      "type": "service"
+    },
+    {
+      "environment": "production",
       "name": "S_BATCH11",
       "service": "tools-hub-batch11",
-      "environment": "production"
+      "type": "service"
     },
     {
-      "type": "service",
+      "environment": "production",
       "name": "S_BATCH12",
       "service": "tools-hub-batch12",
-      "environment": "production"
+      "type": "service"
     },
     {
-      "type": "service",
-      "name": "S_FIX",
-      "service": "tools-hub-fix",
-      "environment": "production"
-    },
-    {
-      "type": "service",
+      "environment": "production",
       "name": "S_BATCH13",
       "service": "tools-hub-batch13",
-      "environment": "production"
+      "type": "service"
     },
     {
-      "type": "service",
-      "name": "S_EXPANDED",
-      "service": "tools-hub-expanded",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_EXPANDED_V2",
-      "service": "tools-hub-expanded-v2",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_REDIRECT",
-      "service": "tools-hub-redirect",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH3",
-      "service": "tools-hub-batch3",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_MISSING",
-      "service": "tools-hub-missing",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH4A",
-      "service": "tools-hub-batch4a",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH4B",
-      "service": "tools-hub-batch4b",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH5B",
-      "service": "tools-hub-batch5b",
-      "environment": "production"
-    },
-    {
-      "type": "service",
-      "name": "S_BATCH5A",
-      "service": "tools-hub-batch5a",
-      "environment": "production"
-    },
-    {
-      "type": "service",
+      "environment": "production",
       "name": "S_BATCH14",
       "service": "tools-hub-batch14",
-      "environment": "production"
+      "type": "service"
     },
     {
-      "type": "service",
-      "name": "S_KR",
-      "service": "tools-hub-kr",
-      "environment": "production"
+      "environment": "production",
+      "name": "S_BATCH3",
+      "service": "tools-hub-batch3",
+      "type": "service"
     },
     {
-      "type": "service",
+      "environment": "production",
+      "name": "S_BATCH4A",
+      "service": "tools-hub-batch4a",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH4B",
+      "service": "tools-hub-batch4b",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH5A",
+      "service": "tools-hub-batch5a",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH5B",
+      "service": "tools-hub-batch5b",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH6A",
+      "service": "tools-hub-batch6a",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH6B",
+      "service": "tools-hub-batch6b",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH7A",
+      "service": "tools-hub-batch7a",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH7B",
+      "service": "tools-hub-batch7b",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH8A",
+      "service": "tools-hub-batch8a",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH8B",
+      "service": "tools-hub-batch8b",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH9A",
+      "service": "tools-hub-batch9a",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_BATCH9B",
+      "service": "tools-hub-batch9b",
+      "type": "service"
+    },
+    {
+      "environment": "production",
       "name": "S_DOCS",
       "service": "tools-hub-docs",
-      "environment": "production"
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_EXPANDED",
+      "service": "tools-hub-expanded",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_EXPANDED_V2",
+      "service": "tools-hub-expanded-v2",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_FIX",
+      "service": "tools-hub-fix",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_INPUT_FIX",
+      "service": "tools-hub-input-fix",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_KR",
+      "service": "tools-hub-kr",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_MISSING",
+      "service": "tools-hub-missing",
+      "type": "service"
+    },
+    {
+      "environment": "production",
+      "name": "S_REDIRECT",
+      "service": "tools-hub-redirect",
+      "type": "service"
     }
   ],
   "keep_bindings": [
