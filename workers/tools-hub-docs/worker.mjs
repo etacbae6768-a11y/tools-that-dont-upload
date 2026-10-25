@@ -1,5 +1,8 @@
 
-const C={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-API-Key','Access-Control-Expose-Headers':'Content-Disposition,X-Egress'};
+import { readBodyCapped } from './request-guards.mjs';
+import { withEvents } from './ttdu-events.mjs';
+
+const C={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-API-Key','Access-Control-Expose-Headers':'Content-Disposition,X-Egress','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 const P=(s,t,d)=>new Response(JSON.stringify({type:'about:blank',title:t,status:s,detail:d}),{status:s,headers:{'Content-Type':'application/problem+json',...C}});
 const enc=new TextEncoder();
 const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
@@ -119,7 +122,8 @@ const ROUTES={
    para('',{after:100})+para('※ 고용노동부 표준근로계약서 항목을 따른 서식입니다. 법률 자문이 아니며, 최저임금·근로시간 등 법정 기준 준수 여부는 직접 확인하세요.',{sz:16});
   return{bytes:docx(body),type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',name:'employment-contract.docx',meta:{}};},
 };
-export default{async fetch(req){if(req.method==='OPTIONS')return new Response(null,{status:204,headers:C});const u=new URL(req.url);const h=ROUTES[u.pathname];if(!h)return P(404,'Not Found','Unknown endpoint');if(req.method!=='POST')return P(405,'Method Not Allowed','Use POST');
- let b;try{b=JSON.parse(await req.text()||'{}');}catch(e){return P(400,'Bad Request','Request body is not valid JSON.');}if(!b||typeof b!=='object'||Array.isArray(b))return P(400,'Bad Request','Body must be a JSON object');
- let r;try{r=h(b);}catch(e){return P(400,'Bad Request',e.message);}
+const __inner={async fetch(req){if(req.method==='OPTIONS')return new Response(null,{status:204,headers:C});const u=new URL(req.url);const h=ROUTES[u.pathname];if(!h)return P(404,'Not Found','Unknown endpoint');if(req.method!=='POST')return P(405,'Method Not Allowed','Use POST');
+ const bounded=await readBodyCapped(req,2*1024*1024);if(bounded.tooLarge)return P(413,'Payload Too Large','Max 2 MiB.');let b;try{b=JSON.parse(new TextDecoder().decode(bounded.bytes)||'{}');}catch(e){return P(400,'Bad Request','Request body is not valid JSON.');}if(!b||typeof b!=='object'||Array.isArray(b))return P(400,'Bad Request','Body must be a JSON object');
+ let r;try{r=h(b);}catch{return P(400,'Bad Request','Could not process input. Check the fields and try again.');}
  return new Response(r.bytes,{headers:{'Content-Type':r.type,'Content-Disposition':'attachment; filename="'+r.name+'"','X-Egress':'none','X-Document-Totals':JSON.stringify(r.meta),...C}});}};
+export default{async fetch(req,env,ctx){return withEvents('tools-hub-docs',p=>Object.prototype.hasOwnProperty.call(ROUTES,p)?p:null,req,env,ctx,()=>__inner.fetch(req));}};
