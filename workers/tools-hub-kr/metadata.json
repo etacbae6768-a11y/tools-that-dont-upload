@@ -1,7 +1,13 @@
 {
   "main_module": "worker.mjs",
   "compatibility_date": "2024-09-23",
-  "bindings": [],
+  "bindings": [
+    {
+      "dataset": "ttdu_api_events",
+      "name": "EVENTS",
+      "type": "analytics_engine"
+    }
+  ],
   "keep_bindings": [
     "secret_text"
   ]

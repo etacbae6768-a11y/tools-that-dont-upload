@@ -1,5 +1,9 @@
 
-const C={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-API-Key'};
+import { readBodyCapped } from './request-guards.mjs';
+import { getQueryPolicy, withDeprecation } from './get-query-policy.mjs';
+import { withEvents } from './ttdu-events.mjs';
+
+const C={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-API-Key','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 const J=(d,s)=>new Response(JSON.stringify(d),{status:s||200,headers:{'Content-Type':'application/json; charset=utf-8','X-Egress':'none',...C}});
 const P=(s,t,d)=>new Response(JSON.stringify({type:'about:blank',title:t,status:s,detail:d}),{status:s,headers:{'Content-Type':'application/problem+json',...C}});
 const INI=['g','kk','n','d','tt','r','m','b','pp','s','ss','','j','jj','ch','k','t','p','h'];
@@ -249,9 +253,9 @@ function krBusinessDays(b){const s=String(b.start||''),e=String(b.end||'');if(!/
 const ROUTES={
  '/api/kr-holidays':b=>{const r=krHolidays(b);return r.error?P(r.status||400,'Bad Request',r.error):J(r);},
  '/api/kr-business-days':b=>{const r=krBusinessDays(b);return r.error?P(r.status||400,'Bad Request',r.error):J(r);},
- '/api/kr-tax-invoice-parse':b=>{try{return J(taxInvoiceParse(b));}catch(e){return P(400,'Bad Request',e.message);}},
- '/api/docx-read':async b=>{try{return J(await docxRead(b));}catch(e){return P(400,'Bad Request',e.message);}},
- '/api/xlsx-read':async b=>{try{return J(await xlsxRead(b));}catch(e){return P(400,'Bad Request',e.message);}},
+ '/api/kr-tax-invoice-parse':b=>{try{return J(taxInvoiceParse(b));}catch{return P(400,'Bad Request','Could not parse this input. Check the file and try again.');}},
+ '/api/docx-read':async b=>{try{return J(await docxRead(b));}catch{return P(400,'Bad Request','Could not parse this input. Check the file and try again.');}},
+ '/api/xlsx-read':async b=>{try{return J(await xlsxRead(b));}catch{return P(400,'Bad Request','Could not parse this input. Check the file and try again.');}},
  '/api/ko-romanize':b=>{if(typeof b.text!=='string'||!b.text)return P(400,'Bad Request','Send {"text":"박지훈"}');return J({romanized:romanize(b.text,b.capitalize!==false),system:'Revised Romanization, syllable by syllable (as used for personal names); sound-change rules between syllables are not applied',original:b.text});},
  '/api/ko-amount-words':b=>{const n=Number(String(b.amount??'').replace(/[,\s원]/g,''));if(!Number.isFinite(n)||n<0||!Number.isInteger(n)||n>=1e20)return P(400,'Bad Request','Send {"amount":1234000} (non-negative integer)');return J({amount:n,formal:'일금 '+amountWords(n,true)+'원정',plain:amountWords(n,false)+' 원',hangul:amountWords(n,true)});},
  '/api/ko-josa':b=>{if(typeof b.word!=='string'||!b.word)return P(400,'Bad Request','Send {"word":"사과","pair":"을/를"}');const pair=b.pair||'은/는';const r=josa(b.word,pair);if(r===null)return P(400,'Bad Request','pair must be one of 은/는, 이/가, 을/를, 과/와, 아/야, 이여/여, 으로/로');return J({result:r,word:b.word,pair});},
@@ -261,6 +265,14 @@ const ROUTES={
  '/api/password-gen':b=>{const r=passwordGen(b||{});if(!r)return P(400,'Bad Request','At least one character set must be enabled');return J(r);},
  '/api/text-case':b=>{if(typeof b.text!=='string')return P(400,'Bad Request','Send {"text":"helloWorld","case":"snake"}');const cs=String(b.case||b.to||'').toLowerCase();const r=textCase(b.text,cs);if(r===null)return P(400,'Bad Request','case must be one of upper, lower, title, sentence, camel, pascal, snake, kebab, constant, dot');return J({result:r,case:cs});},
 };
-export default{async fetch(req){if(req.method==='OPTIONS')return new Response(null,{status:204,headers:C});const u=new URL(req.url);const h=ROUTES[u.pathname];if(!h)return P(404,'Not Found','Unknown endpoint');
- if(req.method!=='GET'&&req.method!=='POST')return P(405,'Method Not Allowed','Use GET or POST');let b={};if(req.method==='POST'){const t=await req.text();if(t.trim()){try{b=JSON.parse(t);}catch(e){return P(400,'Bad Request','Request body is not valid JSON.');}}}else{u.searchParams.forEach((v,k)=>b[k]=v);}
+const __inner={async fetch(req){if(req.method==='OPTIONS')return new Response(null,{status:204,headers:C});const u=new URL(req.url);const h=ROUTES[u.pathname];if(!h)return P(404,'Not Found','Unknown endpoint');
+ if(req.method!=='GET'&&req.method!=='POST')return P(405,'Method Not Allowed','Use GET or POST');let b={};if(req.method==='POST'){const limited=await readBodyCapped(req,2*1024*1024);if(limited.tooLarge)return P(413,'Payload Too Large','Max 2 MiB.');const t=new TextDecoder().decode(limited.bytes);if(t.trim()){try{b=JSON.parse(t);}catch(e){return P(400,'Bad Request','Request body is not valid JSON.');}}}else{u.searchParams.forEach((v,k)=>b[k]=v);}
  if(b===null||typeof b!=='object'||Array.isArray(b))return P(400,'Bad Request','Body must be a JSON object');try{return h(b);}catch(e){return P(400,'Bad Request','Could not process input');}}};
+// Documented GET uses whose query carries no user content stay allowed: /api/kr-holidays?year= (openapi.json)
+// and /api/password-gen?length=&count= (hub home link). All other GET query input is deprecated.
+const KR_GETQ_EXEMPT={'/api/kr-holidays':new Set(['year']),'/api/password-gen':new Set(['length','count','symbols','numbers','uppercase','lowercase','charset','charsets'])};
+const krExempt=u=>{const allow=KR_GETQ_EXEMPT[u.pathname];if(!allow)return false;for(const k of u.searchParams.keys())if(!allow.has(k))return false;return true;};
+export default{async fetch(req,env,ctx){return withEvents('tools-hub-kr',p=>Object.prototype.hasOwnProperty.call(ROUTES,p)?p:null,req,env,ctx,async()=>{
+ const pol=getQueryPolicy(req,env,krExempt);
+ if(pol&&pol.block)return P(405,'Method Not Allowed','Send input in a POST body so it is not placed in the request URL.');
+ return withDeprecation(await __inner.fetch(req),pol&&pol.headers);});}};
