@@ -1,7 +1,7 @@
 const KO_ALIAS={"일괄발급":["@kr_tax_invoice_upload"],"홈택스":["@kr_tax_invoice_upload","@kr_tax_invoice_parse"],"세금계산서 발급":["@kr_tax_invoice_upload"],"워드":["@docx_read"],"표 추출":["@pdf_table_extract"],"표추출":["@pdf_table_extract"],"마크다운":["@markdown_to_pdf"],"공휴일":["@kr_holidays"],"휴일":["@kr_holidays"],"빨간날":["@kr_holidays"],"영업일":["@kr_business_days"],"근무일":["@kr_business_days"],"세금계산서":["@kr_tax_invoice_parse"],"전자계산서":["@kr_tax_invoice_parse"],"매입장":["@kr_tax_invoice_parse"],"엑셀":["@xlsx_read"],"sha256":["hash"],"sha512":["hash"],"sha1":["hash"],"md5":["hash"],"checksum":["hash"],"사업자":["@kr_business_number"],"등록번호":["@kr_business_number"],"견적":["@kr_quote"],"거래명세":["@kr_transaction_statement"],"명세서":["@kr_transaction_statement"],"차용":["@kr_loan_agreement"],"근로계약":["@kr_employment_contract"],"계약서":["@kr_employment_contract","@kr_loan_agreement"],"개인정보":["@ko_pii_mask"],"마스킹":["@ko_pii_mask"],"주민번호":["@ko_pii_mask"],"조사":["@ko_josa"],"초성":["@ko_chosung"],"로마자":["@ko_romanize"],"영문표기":["@ko_romanize"],"금액":["@ko_amount_words"],"원정":["@ko_amount_words"],"한글":["korean"],"병합":["merge"],"합치":["merge"],"분할":["split"],"나누":["split"],"회전":["rotate"],"워터마크":["watermark"],"메타데이터":["metadata"],"해시":["hash"],"비밀번호":["password"],"암호":["password"],"변환":["convert"],"압축":["compress"],"번역":["translate"],"요약":["summarize"],"날짜":["date"],"시간":["time"],"타임스탬프":["timestamp"],"색상":["color"],"큐알":["qr"],"바코드":["barcode"],"정규식":["regex"],"대소문자":["case"],"글자수":["count"],"단어수":["count"],"인코딩":["encode"],"디코딩":["decode"],"단위":["unit"],"도메인":["domain","whois"],"인증서":["ssl"],"이메일":["email"],"전화번호":["phone"],"웹페이지":["fetch"],"스크린샷":["screenshot"],"계산":["calc"],"이미지":["image"],"문자열":["text"],"정렬":["sort"],"중복":["dedupe","unique"]};
 const API='https://toolsthatdontupload.com';
 import { readBodyCapped } from './request-guards.mjs';
-import { withEvents } from './ttdu-events.mjs';
+import { withEvents, ipHash } from './ttdu-events.mjs';
 
 const CORS={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-API-Key,X-AI-Key,Mcp-Session-Id,Mcp-Protocol-Version,Last-Event-ID','Access-Control-Expose-Headers':'Mcp-Session-Id,WWW-Authenticate','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 
@@ -201,13 +201,20 @@ const __inner={async fetch(request,env){
     if(limited.tooLarge)return new Response(JSON.stringify({jsonrpc:'2.0',id:null,error:{code:-32000,message:'Request body exceeds the 16 MiB limit.'}}),{status:413,headers:{'Content-Type':'application/json','Cache-Control':'no-store',...CORS}});
     var body=JSON.parse(new TextDecoder().decode(limited.bytes));
     var id=body.id;var method=body.method;var params=body.params;
+    var __keyed=!!(request.headers.get('x-api-key')||/^Bearer\s+\S+/i.test(__auth));
+    var __HINT='Tip: a free API key raises your limits: https://toolsthatdontupload.com/developers/#key';
+    // Usage telemetry (no arguments, no file content): JSON-RPC method, tool name, MCP client name/version, country, keyed or not, daily-salted IP hash.
+    try{if(env.EVENTS){var __tool='';if(method==='tools/call'){__tool=String((params&&params.name)||'');if(__tool==='run_tool'&&params&&params.arguments&&params.arguments.tool)__tool+=':'+String(params.arguments.tool);}
+      var __cn='',__cv='';if(method==='initialize'&&params&&params.clientInfo){__cn=String(params.clientInfo.name||'');__cv=String(params.clientInfo.version||'');}
+      var __s=function(x){return String(x||'').replace(/[^A-Za-z0-9 ._:\/()-]/g,'').slice(0,64);};
+      env.EVENTS.writeDataPoint({blobs:['mcp-rpc',__s(method),__s(__tool),__s(__cn),__s(__cv),request.headers.get('cf-ipcountry')||'',__keyed?'key':'nokey',await ipHash(env,request.headers.get('cf-connecting-ip')||'')],doubles:[1],indexes:['mcp-rpc']});}}catch(e){}
     
     if(typeof method==='string'&&method.indexOf('notifications/')===0)return new Response(null,{status:202,headers:CORS});
     if(method==='ping')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{}}),{headers:{'Content-Type':'application/json',...CORS}});
-    if(method==='initialize'){var reqV=params&&params.protocolVersion;var si=Object.assign({},SERVER_INFO,{protocolVersion:SUPPORTED_PROTOCOLS.indexOf(reqV)>=0?reqV:SUPPORTED_PROTOCOLS[0]});return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:si}),{headers:{'Content-Type':'application/json',...CORS}});}
+    if(method==='initialize'){var reqV=params&&params.protocolVersion;var si=Object.assign({},SERVER_INFO,{protocolVersion:SUPPORTED_PROTOCOLS.indexOf(reqV)>=0?reqV:SUPPORTED_PROTOCOLS[0]});if(!__keyed)si.instructions=SERVER_INFO.instructions+' '+__HINT;return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:si}),{headers:{'Content-Type':'application/json',...CORS}});}
     if(false)return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:SERVER_INFO}),{headers:{'Content-Type':'application/json',...CORS}});
     
-    if(method==='tools/list')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:{tools:META_TOOLS}}),{headers:{'Content-Type':'application/json',...CORS}});
+    if(method==='tools/list')return new Response(JSON.stringify({jsonrpc:'2.0',id:id,result:__keyed?{tools:META_TOOLS}:{tools:META_TOOLS,_meta:{'com.toolsthatdontupload/hint':__HINT}}}),{headers:{'Content-Type':'application/json',...CORS}});
     
     if(method==='tools/call'){
       var name=params?.name;var args=params?.arguments||{};
