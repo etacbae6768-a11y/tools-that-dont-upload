@@ -110,6 +110,11 @@
       "name": "WHOIS",
       "service": "tools-whois",
       "type": "service"
+    },
+    {
+      "type": "d1",
+      "name": "BILL",
+      "id": "c13b6f77-4169-45f9-a89e-a29ea7982328"
     }
   ],
   "keep_bindings": [

@@ -4,6 +4,21 @@ import { getQueryPolicy, withDeprecation } from './get-query-policy.mjs';
 import { withEvents } from './ttdu-events.mjs';
 import { checkPdfUpload, mapOriginPdfError } from './pdf-input-guard.mjs';
 
+/* Billing counters (2026-11-02). Workers KV is eventually consistent (reads are cached for up to 60 s), so a
+   read-then-write counter undercounts calls made close together: 30+ keyed file calls in a row all stayed in the
+   free daily allowance, and 3 paid calls were charged as 2. Counters now use one atomic D1 statement
+   (insert or add, returning the new value). KV stays as the value other workers read (usage, billing) and as the
+   fallback if D1 fails. */
+async function ctrAdd(env,k,d,ttl,seed){
+  const now=Math.floor(Date.now()/1000);
+  if(env.BILL){try{
+    const r=await env.BILL.prepare('INSERT INTO ctr (k,n,exp) VALUES (?1,?2,?3) ON CONFLICT(k) DO UPDATE SET n=CASE WHEN exp<?4 THEN ?2 ELSE n+?5 END, exp=CASE WHEN exp<?4 THEN ?3 ELSE exp END RETURNING n').bind(k,seed+d,now+ttl,now,d).first();
+    if(Math.random()<0.002)await env.BILL.prepare('DELETE FROM ctr WHERE exp<?1').bind(now).run();
+    if(r&&typeof r.n==='number')return r.n;
+  }catch(e){}}
+  const cur=parseInt(await env.RATE_KV.get(k)||String(seed));const n=cur+d;await env.RATE_KV.put(k,String(n),{expirationTtl:ttl});return n;
+}
+
 const NET_MAP={"/api/web-fetch":"B13","/api/url-info":"B13","/api/dns-lookup":"EXP","/api/ssl-check":"EXP","/api/http-headers":"EXP","/api/rss-parse":"EXP","/api/meta-extract":"MISS","/api/sitemap-parse":"MISS","/api/link-check":"EXP2","/api/open-graph":"EXP2","/api/http-redirect":"REDIR","/api/whois":"WHOIS","/api/cors-test":"B7B","/api/sri-hash":"B7A","/api/security-headers":"B7A","/api/webhook-test":"B8A","/api/lighthouse-score":"B3","/api/favicon":"B3","/api/tech-detect":"B3","/api/canonical-url":"B3","/api/domain-age":"B3"};
 const AI_MAP={"/api/ai-translate":"AI","/api/ai-summarize":"AI","/api/ai-ocr":"AI"};
 const RENDER_MAP={"/api/html-to-pdf":"RENDER","/api/markdown-to-pdf":"RENDER","/api/pdf-table-extract":"PDFTXT","/api/pdf-text-layout":"PDFTXT"};
@@ -94,16 +109,18 @@ const __inner={async fetch(request,env){
     const limit=LIMITS[tier]||1000;
     const acct=kd.account?String(kd.account).replace(/^kh:|^oa:/,''):kd._h;const uKey='cr:'+acct+':'+month();
     let freeUsed=false;
-    if((isFile||isAI)&&!isHigh){const fcat=isFile?'file':'ai';const flim=isFile?20:10;const fk='kfree:'+fcat+':'+acct+':'+day();const fn=parseInt(await env.RATE_KV.get(fk)||'0');
-      if(fn<flim){await env.RATE_KV.put(fk,String(fn+1),{expirationTtl:90000});freeUsed=true;headersOut={'X-Credits-Cost':'0','X-Free-Daily-Limit':String(flim),'X-Free-Daily-Remaining':String(flim-fn-1)};}}
+    if((isFile||isAI)&&!isHigh){const fcat=isFile?'file':'ai';const flim=isFile?20:10;const fk='kfree:'+fcat+':'+acct+':'+day();const fn=await ctrAdd(env,fk,1,90000,0);
+      if(fn<=flim){freeUsed=true;headersOut={'X-Credits-Cost':'0','X-Free-Daily-Limit':String(flim),'X-Free-Daily-Remaining':String(flim-fn)};}}
     if(!freeUsed){
-    const used=parseInt(await env.RATE_KV.get(uKey)||'0');
     const prepaid=parseInt(await env.RATE_KV.get('prepaid:'+acct)||'0');
-    if(cost>limit-used+prepaid)return json({title:'Usage Limit Reached',status:402,detail:'All API credits have been used for this billing period. Purchase additional credits or upgrade your plan to continue.',message:'API 사용량을 모두 소진하였습니다. 추가 크레딧을 구매하거나 플랜을 업그레이드해 주세요.',used,monthlyLimit:limit,prepaid,needed:cost,upgrade_url:'https://toolsthatdontupload.com/pricing/',docs_url:'https://toolsthatdontupload.com/docs/api-keys/',developers_url:DEV_URL,paid_plans:PAID,next_steps:'Your monthly credits reset at the start of the next month (UTC). Paid plans and credit packs: https://toolsthatdontupload.com/pricing/ (payments by PayPal). Questions: hello@toolsthatdontupload.com. Limits explained: '+DEV_URL,next_steps_ko:'월 크레딧은 다음 달 1일(UTC)에 초기화됩니다. 유료 플랜과 크레딧 팩: https://toolsthatdontupload.com/ko/pricing/ (PayPal 결제). 문의: hello@toolsthatdontupload.com 한도 안내: https://toolsthatdontupload.com/ko/developers/#limits'},402,{Link:HELP_LINK});
-    const rem=limit-used;
-    if(cost<=rem)await env.RATE_KV.put(uKey,String(used+cost),{expirationTtl:2764800});
-    else{await env.RATE_KV.put(uKey,String(limit),{expirationTtl:2764800});await env.RATE_KV.put('prepaid:'+acct,String(prepaid-(cost-Math.max(0,rem))));}
-    headersOut={'X-Credits-Used':String(used+cost),'X-Credits-Limit':String(limit),'X-Credits-Cost':String(cost),'X-Credits-Remaining':String(Math.max(0,limit-used-cost))};
+    const seed=parseInt(await env.RATE_KV.get(uKey)||'0');
+    const nu=await ctrAdd(env,uKey,cost,2764800,seed);
+    const used=nu-cost;
+    const over=Math.max(0,nu-limit)-Math.max(0,used-limit);
+    if(over>prepaid){await ctrAdd(env,uKey,-cost,2764800,0);return json({title:'Usage Limit Reached',status:402,detail:'All API credits have been used for this billing period. Purchase additional credits or upgrade your plan to continue.',message:'API 사용량을 모두 소진하였습니다. 추가 크레딧을 구매하거나 플랜을 업그레이드해 주세요.',used,monthlyLimit:limit,prepaid,needed:cost,upgrade_url:'https://toolsthatdontupload.com/pricing/',docs_url:'https://toolsthatdontupload.com/docs/api-keys/',developers_url:DEV_URL,paid_plans:PAID,next_steps:'Your monthly credits reset at the start of the next month (UTC). Paid plans and credit packs: https://toolsthatdontupload.com/pricing/ (payments by PayPal). Questions: hello@toolsthatdontupload.com. Limits explained: '+DEV_URL,next_steps_ko:'월 크레딧은 다음 달 1일(UTC)에 초기화됩니다. 유료 플랜과 크레딧 팩: https://toolsthatdontupload.com/ko/pricing/ (PayPal 결제). 문의: hello@toolsthatdontupload.com 한도 안내: https://toolsthatdontupload.com/ko/developers/#limits'},402,{Link:HELP_LINK});}
+    await env.RATE_KV.put(uKey,String(Math.min(nu,limit)),{expirationTtl:2764800});
+    if(over>0)await env.RATE_KV.put('prepaid:'+acct,String(prepaid-over));
+    headersOut={'X-Credits-Used':String(Math.min(nu,limit)),'X-Credits-Limit':String(limit),'X-Credits-Cost':String(cost),'X-Credits-Remaining':String(Math.max(0,limit-nu))};
     }
   }else{
     if(isHigh)return json({title:'API Key Required',status:401,detail:'The "high" quality option uses larger AI models and requires an API key (X-API-Key header). Get a free key with 1,000 credits/month, or bring your own Claude/ChatGPT key.',message:'고품질 모드는 대형 AI 모델을 사용하며 API 키가 필요합니다.',upgrade_url:'https://toolsthatdontupload.com/api-keys/',docs_url:'https://toolsthatdontupload.com/docs/ai-upgrade/',developers_url:DEV_URL},401,{Link:HELP_LINK});
