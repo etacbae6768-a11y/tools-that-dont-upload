@@ -3,6 +3,7 @@ import { migrateRecord } from './email-index.mjs';
 import { getQueryPolicy, withDeprecation } from './get-query-policy.mjs';
 import { withEvents } from './ttdu-events.mjs';
 import { checkPdfUpload, mapOriginPdfError } from './pdf-input-guard.mjs';
+import { prepaidGet, prepaidTake } from './prepaid-store.mjs';
 
 /* Billing counters (2026-11-02). Workers KV is eventually consistent (reads are cached for up to 60 s), so a
    read-then-write counter undercounts calls made close together: 30+ keyed file calls in a row all stayed in the
@@ -112,14 +113,13 @@ const __inner={async fetch(request,env){
     if((isFile||isAI)&&!isHigh){const fcat=isFile?'file':'ai';const flim=isFile?20:10;const fk='kfree:'+fcat+':'+acct+':'+day();const fn=await ctrAdd(env,fk,1,90000,0);
       if(fn<=flim){freeUsed=true;headersOut={'X-Credits-Cost':'0','X-Free-Daily-Limit':String(flim),'X-Free-Daily-Remaining':String(flim-fn)};}}
     if(!freeUsed){
-    const prepaid=parseInt(await env.RATE_KV.get('prepaid:'+acct)||'0');
+    const prepaid=await prepaidGet(env,acct);
     const seed=parseInt(await env.RATE_KV.get(uKey)||'0');
     const nu=await ctrAdd(env,uKey,cost,2764800,seed);
     const used=nu-cost;
     const over=Math.max(0,nu-limit)-Math.max(0,used-limit);
-    if(over>prepaid){await ctrAdd(env,uKey,-cost,2764800,0);return json({title:'Usage Limit Reached',status:402,detail:'All API credits have been used for this billing period. Purchase additional credits or upgrade your plan to continue.',message:'API 사용량을 모두 소진하였습니다. 추가 크레딧을 구매하거나 플랜을 업그레이드해 주세요.',used,monthlyLimit:limit,prepaid,needed:cost,upgrade_url:'https://toolsthatdontupload.com/pricing/',docs_url:'https://toolsthatdontupload.com/docs/api-keys/',developers_url:DEV_URL,paid_plans:PAID,next_steps:'Your monthly credits reset at the start of the next month (UTC). Paid plans and credit packs: https://toolsthatdontupload.com/pricing/ (payments by PayPal). Questions: hello@toolsthatdontupload.com. Limits explained: '+DEV_URL,next_steps_ko:'월 크레딧은 다음 달 1일(UTC)에 초기화됩니다. 유료 플랜과 크레딧 팩: https://toolsthatdontupload.com/ko/pricing/ (PayPal 결제). 문의: hello@toolsthatdontupload.com 한도 안내: https://toolsthatdontupload.com/ko/developers/#limits'},402,{Link:HELP_LINK});}
+    if(over>0&&!(await prepaidTake(env,acct,over))){await ctrAdd(env,uKey,-cost,2764800,0);return json({title:'Usage Limit Reached',status:402,detail:'All API credits have been used for this billing period. Purchase additional credits or upgrade your plan to continue.',message:'API 사용량을 모두 소진하였습니다. 추가 크레딧을 구매하거나 플랜을 업그레이드해 주세요.',used,monthlyLimit:limit,prepaid,needed:cost,upgrade_url:'https://toolsthatdontupload.com/pricing/',docs_url:'https://toolsthatdontupload.com/docs/api-keys/',developers_url:DEV_URL,paid_plans:PAID,next_steps:'Your monthly credits reset at the start of the next month (UTC). Paid plans and credit packs: https://toolsthatdontupload.com/pricing/ (payments by PayPal). Questions: hello@toolsthatdontupload.com. Limits explained: '+DEV_URL,next_steps_ko:'월 크레딧은 다음 달 1일(UTC)에 초기화됩니다. 유료 플랜과 크레딧 팩: https://toolsthatdontupload.com/ko/pricing/ (PayPal 결제). 문의: hello@toolsthatdontupload.com 한도 안내: https://toolsthatdontupload.com/ko/developers/#limits'},402,{Link:HELP_LINK});}
     await env.RATE_KV.put(uKey,String(Math.min(nu,limit)),{expirationTtl:2764800});
-    if(over>0)await env.RATE_KV.put('prepaid:'+acct,String(prepaid-over));
     headersOut={'X-Credits-Used':String(Math.min(nu,limit)),'X-Credits-Limit':String(limit),'X-Credits-Cost':String(cost),'X-Credits-Remaining':String(Math.max(0,limit-nu))};
     }
   }else{
