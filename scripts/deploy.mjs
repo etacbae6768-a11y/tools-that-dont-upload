@@ -28,6 +28,25 @@ async function liveBindingNames(name) {
     .map((b) => b.name);
 }
 
+// DRY_RUN=1: deploy nothing. For every worker, compare the modules in workers/<name>/ byte for byte with the
+// version that is live now, and check compatibility_date and the binding guard. Used by check-workers.yml on pull requests.
+const DRY = process.env.DRY_RUN === '1';
+async function liveDiff(name, dir, meta) {
+  const dep = await (await fetch(`${api}/${name}/deployments`, { headers: auth })).json();
+  if (!dep.success) return ['cannot read deployments: ' + JSON.stringify(dep.errors)];
+  const vid = dep.result.deployments?.[0]?.versions?.[0]?.version_id;
+  if (!vid) return ['no live deployment'];
+  const v = await (await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/workers/${name}/versions/${vid}?include=modules`, { headers: auth })).json();
+  if (!v.success) return ['cannot read live version: ' + JSON.stringify(v.errors)];
+  const out = [];
+  const liveMods = new Map((v.result.modules || []).map((m) => [m.name, Buffer.from(m.content_base64, 'base64')]));
+  const local = (await readdir(dir)).filter((f) => /\.(mjs|js)$/.test(f));
+  for (const f of local) { const b = await readFile(path.join(dir, f)); if (!liveMods.has(f)) out.push(f + ' not live'); else if (!liveMods.get(f).equals(b)) out.push(f + ' differs from live'); }
+  for (const n of liveMods.keys()) if (/\.(mjs|js)$/.test(n) && !local.includes(n)) out.push(n + ' live but not in repo');
+  if (v.result.main_module && v.result.main_module !== meta.main_module) out.push('main_module ' + meta.main_module + ' vs live ' + v.result.main_module);
+  return out;
+}
+
 const root = path.resolve('workers');
 const names = (await readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
 let failed = 0;
@@ -43,6 +62,12 @@ for (const name of names) {
   const declared = new Set(meta.bindings.map((b) => b.name));
   const missing = live.filter((n) => !declared.has(n));
   if (missing.length) { failed++; console.error(`SKIPPED ${name}: metadata.json lacks live bindings ${missing.join(', ')}`); continue; }
+
+  if (DRY) {
+    const diff = await liveDiff(name, dir, meta);
+    if (diff.length) { failed++; console.error(`DIFF ${name}: ${diff.join('; ')}`); } else console.log(`same as live: ${name}`);
+    continue;
+  }
 
   meta.bindings.push(
     { type: 'plain_text', name: 'BUILD_COMMIT', text: commit },
