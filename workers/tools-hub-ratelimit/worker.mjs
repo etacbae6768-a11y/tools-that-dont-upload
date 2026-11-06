@@ -23,6 +23,8 @@ async function ctrAdd(env,k,d,ttl,seed){
 const NET_MAP={"/api/web-fetch":"B13","/api/url-info":"B13","/api/dns-lookup":"EXP","/api/ssl-check":"EXP","/api/http-headers":"EXP","/api/rss-parse":"EXP","/api/meta-extract":"MISS","/api/sitemap-parse":"MISS","/api/link-check":"EXP2","/api/open-graph":"EXP2","/api/http-redirect":"REDIR","/api/whois":"WHOIS","/api/cors-test":"B7B","/api/sri-hash":"B7A","/api/security-headers":"B7A","/api/webhook-test":"B8A","/api/lighthouse-score":"B3","/api/favicon":"B3","/api/tech-detect":"B3","/api/canonical-url":"B3","/api/domain-age":"B3"};
 const AI_MAP={"/api/ai-translate":"AI","/api/ai-summarize":"AI","/api/ai-ocr":"AI"};
 const RENDER_MAP={"/api/html-to-pdf":"RENDER","/api/markdown-to-pdf":"RENDER","/api/pdf-table-extract":"PDFTXT","/api/pdf-text-layout":"PDFTXT"};
+// S-HUB 2026-11-06: saved flows (ttdu.flow/v1) run on the server by Worker ttdu-flows; counted like a file endpoint.
+const FLOW_MAP={"/v1/flows/run":"FLOWS"};
 const FILE_EPS=new Set(["/api/pdf-merge","/api/pdf-split","/api/pdf-rotate","/api/pdf-watermark","/api/pdf-metadata","/api/pdf-extract"]);
 // W-HUBFIX 2026-10-14: handled by Worker tools-hub-pdf when the PDF service binding exists, otherwise by the origin.
 const PDF_LOCAL=new Set(["/api/pdf-extract","/api/pdf-split","/api/pdf-metadata"]);
@@ -76,7 +78,7 @@ async function lookupKey(env,k){
 const __inner={async fetch(request,env){
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers:C});
   const url=new URL(request.url);const p=url.pathname;
-  const isNet=!!NET_MAP[p],isAI=!!AI_MAP[p],isRender=!!RENDER_MAP[p],isFile=FILE_EPS.has(p)||isRender;
+  const isNet=!!NET_MAP[p],isAI=!!AI_MAP[p],isRender=!!RENDER_MAP[p],isFlow=!!FLOW_MAP[p],isFile=FILE_EPS.has(p)||isRender||isFlow;
   if(!isNet&&!isAI&&!isFile)return json({type:'about:blank',title:'Not Found',status:404,detail:'This endpoint is not available. It was withdrawn until it passes accuracy tests. See https://toolsthatdontupload.com/openapi.json for the current list.'},404);
   if(request.method!=='POST'&&request.method!=='GET')return json({title:'Method Not Allowed',status:405},405,{Allow:'GET, POST, OPTIONS'});
   const contentType=(request.headers.get('content-type')||'').toLowerCase();
@@ -91,11 +93,11 @@ const __inner={async fetch(request,env){
   const internal=env.INTERNAL_TOKEN&&request.headers.get('x-internal-token')===env.INTERNAL_TOKEN;
   const ip=(internal&&request.headers.get('x-client-ip'))||request.headers.get('cf-connecting-ip')||'unknown';
   let cost=isNet?COST.net:isFile?COST.file:COST[p];
-  if(isFile&&!isRender&&!contentType.includes('multipart/form-data'))return json({title:'Bad Request',status:400,detail:'This endpoint requires a multipart/form-data file upload.'},400);
+  if(isFile&&!isRender&&!isFlow&&!contentType.includes('multipart/form-data'))return json({title:'Bad Request',status:400,detail:'This endpoint requires a multipart/form-data file upload.'},400);
   let bodyText=null,bodyObj={};
   let aiOpts={};
   if(isMultiAI&&request.method==='POST'){try{const fd=await requestWithBody(request,bodyBytes).formData();for(const k of ['provider','quality','model']){const v=fd.get(k);if(typeof v==='string')aiOpts[k]=v;}}catch(e){return json({title:'Bad Request',status:400,detail:'Multipart body is invalid.'},400);}}
-  if((!isFile||isRender)&&!isMultiAI&&request.method==='POST'){bodyText=new TextDecoder().decode(bodyBytes);if(bodyText){try{bodyObj=JSON.parse(bodyText);}catch(e){return json({title:'Bad Request',status:400,detail:'Body must be valid JSON.'},400);}}}
+  if((!isFile||isRender)&&!isFlow&&!isMultiAI&&request.method==='POST'){bodyText=new TextDecoder().decode(bodyBytes);if(bodyText){try{bodyObj=JSON.parse(bodyText);}catch(e){return json({title:'Bad Request',status:400,detail:'Body must be valid JSON.'},400);}}}
   if(!isFile&&request.method==='GET'){url.searchParams.forEach((v,k)=>{bodyObj[k]=v;});}
   if(isNet){const bad=checkTarget(bodyObj||{});if(bad)return json({title:'Bad Request',status:400,detail:'Target rejected: '+bad+'. Only public http(s) hosts on ports 80/443 are allowed.'},400);}
   if(isAI&&!isMultiAI)aiOpts=bodyObj||{};
@@ -132,11 +134,11 @@ const __inner={async fetch(request,env){
     await env.RATE_KV.put(k,String(n+1),{expirationTtl:90000});
     {const rs=String(secsToMidnightUTC());headersOut={'RateLimit-Limit':String(lim),'RateLimit-Remaining':String(lim-n-1),'RateLimit-Reset':rs,'X-RateLimit-Limit':String(lim),'X-RateLimit-Remaining':String(lim-n-1),'X-RateLimit-Reset':rs};}
   }
-  if(isFile&&!isRender){const g=await checkPdfUpload(p,requestWithBody(request,bodyBytes));if(g)return json(g,g.status,{...headersOut,...(g.status===405?{Allow:'POST, OPTIONS'}:{})});}
+  if(isFile&&!isRender&&!isFlow){const g=await checkPdfUpload(p,requestWithBody(request,bodyBytes));if(g)return json(g,g.status,{...headersOut,...(g.status===405?{Allow:'POST, OPTIONS'}:{})});}
   const fwdHeaders=new Headers();
   for(const [k,v] of request.headers){if(!/^(x-api-key|authorization|x-internal-token|x-client-ip)$/i.test(k))fwdHeaders.set(k,v);}
   let resp;
-  const target=NET_MAP[p]||AI_MAP[p]||RENDER_MAP[p];
+  const target=NET_MAP[p]||AI_MAP[p]||RENDER_MAP[p]||FLOW_MAP[p];if(isFlow){if(!env.FLOWS||!env.FLOWS_TOKEN)return json({title:'Service Unavailable',status:503,detail:'Flows are not available right now.'},503);fwdHeaders.set('x-internal-token',env.FLOWS_TOKEN);}
   if(target){
     const init={method:request.method,headers:fwdHeaders};
     if(request.method==='POST')init.body=bodyBytes;
@@ -147,7 +149,7 @@ const __inner={async fetch(request,env){
     try{const __pr=new Request(requestWithBody(request,bodyBytes),{headers:fwdHeaders});resp=(PDF_LOCAL.has(p)&&env.PDF)?await env.PDF.fetch(__pr):await fetch(__pr);}
     catch{return json({title:'Bad Gateway',status:502,detail:'The processing service is temporarily unavailable.'},502);}
   }
-  if(isFile&&!isRender&&resp.status>=500){const m=await mapOriginPdfError(resp);if(m)return json(m,m.status,headersOut);}
+  if(isFile&&!isRender&&!isFlow&&resp.status>=500){const m=await mapOriginPdfError(resp);if(m)return json(m,m.status,headersOut);}
   if(resp.status>=500)return json({title:'Bad Gateway',status:502,detail:'The processing service could not complete this request.'},502);
   const out=new Response(resp.body,resp);
   let egress='none';
@@ -159,7 +161,7 @@ const __inner={async fetch(request,env){
   for(const [k,v] of Object.entries({...C,...headersOut}))out.headers.set(k,v);
   return out;
 }};
-const gwRoute=p=>(NET_MAP[p]||AI_MAP[p]||RENDER_MAP[p]||FILE_EPS.has(p))?p:null;
+const gwRoute=p=>(NET_MAP[p]||AI_MAP[p]||RENDER_MAP[p]||FLOW_MAP[p]||FILE_EPS.has(p))?p:null;
 export default{async fetch(request,env,ctx){return withEvents('tools-hub-ratelimit',gwRoute,request,env,ctx,async()=>{
  if(request.method==='OPTIONS')return __inner.fetch(request,env);
  const pol=gwRoute(new URL(request.url).pathname)?getQueryPolicy(request,env):null;

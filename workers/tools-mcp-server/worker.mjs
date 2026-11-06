@@ -23,6 +23,12 @@ const META_TOOLS=[
     inputSchema:{type:'object',properties:{tool:{type:'string',description:'Catalog tool name (e.g. "hash_text", "pdf_merge", "web_fetch")'},arguments:{type:'object',description:'Tool arguments as key-value pairs'}},required:['tool','arguments']}
   },
   {
+    name:'run_flow',
+    title:'Run a saved flow',annotations:{title:'Run a saved flow',readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+    description:'Run a saved flow (ttdu.flow/v1, exported from workflows.toolsthatdontupload.com) on files sent as base64. The files are processed on our server for this request and not stored. Same step rules and tool code as the workflows page. Counts as one file call. Steps that need a browser (for example image.batch) return 422. Limits: 20 files, 10 MB through MCP.',
+    inputSchema:{type:'object',properties:{flow:{type:'object',description:'The flow JSON: {"schema":"ttdu.flow/v1","steps":[{"tool":"pdf.merge","scope":"all","options":{}}]}'},files:{type:'array',description:'Input files in order',items:{type:'object',properties:{name:{type:'string'},base64:{type:'string'}},required:['name','base64']}}},required:['flow','files']}
+  },
+  {
     name:'list_categories',
     title:'List categories',annotations:{title:'List categories',readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
     description:'List tool categories with counts and example tool names.',
@@ -236,11 +242,21 @@ const __inner={async fetch(request,env){
         if(!args.tool||!(CATALOG_BY_NAME[args.tool]||NAME_TO_API[args.tool])){result={error:'Unknown tool: '+args.tool};}
         else{var out=await callTool(args.tool,args.arguments||{},{env:env,ip:ip2,key:apiKey2,aiKey:request.headers.get('x-ai-key')||''});if(!apiKey2&&(out.status===401||out.status===429)&&!(out.status===401&&request.headers.get('x-ai-key')))return unauthorized(out.status===401?'This tool needs an account. Sign in to continue.':'Anonymous daily limit reached. Sign in for your own quota.');result=out.data;var __egress=out.egress||'none';if(out.status>=400&&result&&!result.error)result={error:(result.detail||result.title||('HTTP '+out.status)),details:result};}
       }
+      else if(name==='run_flow'){
+        var apiKey3=request.headers.get('x-api-key')||(request.headers.get('authorization')||'').replace(/^Bearer\s+/i,'');
+        var fl=Array.isArray(args.files)?args.files:[];var tot=0;fl.forEach(function(f){tot+=Math.floor(String((f&&f.base64)||'').length*3/4);});
+        if(!args.flow||!fl.length){result={error:'Send flow (ttdu.flow/v1) and files: [{name, base64}].'};}
+        else if(tot>10*1024*1024){result={error:'Files over 10 MB are not accepted through MCP. Use POST /v1/flows/run.'};}
+        else{var fh3={'Content-Type':'application/json','User-Agent':'ttdu-mcp/1.5','x-internal-token':env.INTERNAL_TOKEN,'x-client-ip':request.headers.get('cf-connecting-ip')||'unknown'};if(apiKey3)fh3['x-api-key']=apiKey3;
+          var fr3;try{fr3=await env.RL.fetch(new Request(API+'/v1/flows/run',{method:'POST',headers:fh3,body:JSON.stringify({flow:args.flow,files:fl})}));}catch(e){fr3=null;}
+          if(!fr3){result={error:'Flow run failed. Please retry.'};}
+          else{if(!apiKey3&&(fr3.status===401||fr3.status===429))return unauthorized(fr3.status===401?'This tool needs an account. Sign in to continue.':'Anonymous daily limit reached. Sign in for your own quota.');var t3=await fr3.text();try{result=JSON.parse(t3);}catch(e){result={error:'HTTP '+fr3.status};}if(fr3.status>=400&&result&&!result.error)result={error:(result.detail||result.title||('HTTP '+fr3.status)),details:result};var __egress='none';}}
+      }
       else if(name==='list_categories'){
         result={categories:CATEGORIES,totalTools:CATALOG.length};
       }
       else{
-        result={error:'Unknown tool. Available: search_tools, run_tool, list_categories.'};
+        result={error:'Unknown tool. Available: search_tools, run_tool, run_flow, list_categories.'};
       }
       
       var __res={content:[{type:'text',text:JSON.stringify(result)}],isError:!!result.error};if(typeof __egress!=='undefined')__res._meta={'com.toolsthatdontupload/egress':__egress,'com.toolsthatdontupload/stored':false};

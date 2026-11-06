@@ -115,6 +115,11 @@
       "type": "d1",
       "name": "BILL",
       "id": "c13b6f77-4169-45f9-a89e-a29ea7982328"
+    },
+    {
+      "type": "service",
+      "name": "FLOWS",
+      "service": "ttdu-flows"
     }
   ],
   "keep_bindings": [
