@@ -29,6 +29,24 @@ const META_TOOLS=[
     inputSchema:{type:'object',properties:{flow:{type:'object',description:'The flow JSON: {"schema":"ttdu.flow/v1","steps":[{"tool":"pdf.merge","scope":"all","options":{}}]}'},files:{type:'array',description:'Input files in order',items:{type:'object',properties:{name:{type:'string'},base64:{type:'string'}},required:['name','base64']}}},required:['flow','files']}
   },
   {
+    name:'hwp_to_markdown',
+    title:'HWP to Markdown',annotations:{title:'HWP to Markdown',readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+    description:'Convert a Korean Hangul Word Processor document (HWP 5.x or HWPX) to Markdown: paragraphs in reading order and tables as Markdown tables. The file is processed on our server for this request and not stored. Counts as one file call. Encrypted or damaged documents return an error.',
+    inputSchema:{type:'object',properties:{name:{type:'string',description:'File name, e.g. "notice.hwp" or "form.hwpx"'},base64:{type:'string',description:'The HWP or HWPX file, base64-encoded (up to 10 MB through MCP)'}},required:['base64']}
+  },
+  {
+    name:'hwp_to_text',
+    title:'HWP to text',annotations:{title:'HWP to text',readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+    description:'Extract the text of a HWP or HWPX document with its structure: paragraphs and tables (rows and merged cells) as JSON blocks. Processed on our server for this request, not stored. Counts as one file call.',
+    inputSchema:{type:'object',properties:{name:{type:'string',description:'File name, e.g. "notice.hwp" or "form.hwpx"'},base64:{type:'string',description:'The HWP or HWPX file, base64-encoded (up to 10 MB through MCP)'}},required:['base64']}
+  },
+  {
+    name:'hwp_to_docx',
+    title:'HWP to DOCX',annotations:{title:'HWP to DOCX',readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+    description:'Convert a HWP or HWPX document to an editable DOCX (paragraphs and tables; layout, fonts and images are not kept). Returns the file as base64. Processed on our server for this request, not stored. Counts as one file call.',
+    inputSchema:{type:'object',properties:{name:{type:'string',description:'File name, e.g. "notice.hwp" or "form.hwpx"'},base64:{type:'string',description:'The HWP or HWPX file, base64-encoded (up to 10 MB through MCP)'}},required:['base64']}
+  },
+  {
     name:'list_categories',
     title:'List categories',annotations:{title:'List categories',readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
     description:'List tool categories with counts and example tool names.',
@@ -252,11 +270,21 @@ const __inner={async fetch(request,env){
           if(!fr3){result={error:'Flow run failed. Please retry.'};}
           else{if(!apiKey3&&(fr3.status===401||fr3.status===429))return unauthorized(fr3.status===401?'This tool needs an account. Sign in to continue.':'Anonymous daily limit reached. Sign in for your own quota.');var t3=await fr3.text();try{result=JSON.parse(t3);}catch(e){result={error:'HTTP '+fr3.status};}if(fr3.status>=400&&result&&!result.error)result={error:(result.detail||result.title||('HTTP '+fr3.status)),details:result};var __egress='none';}}
       }
+      else if(name==='hwp_to_markdown'||name==='hwp_to_text'||name==='hwp_to_docx'){
+        var apiKey4=request.headers.get('x-api-key')||(request.headers.get('authorization')||'').replace(/^Bearer\s+/i,'');
+        var b64h=String(args.base64||'');
+        if(!b64h){result={error:'Send base64 (the HWP or HWPX file).'};}
+        else if(Math.floor(b64h.length*3/4)>10*1024*1024){result={error:'Files over 10 MB are not accepted through MCP. Use POST /v1/hwp/'+name.slice(7)+'.'};}
+        else{var fh4={'Content-Type':'application/json','User-Agent':'ttdu-mcp/1.5','x-internal-token':env.INTERNAL_TOKEN,'x-client-ip':request.headers.get('cf-connecting-ip')||'unknown'};if(apiKey4)fh4['x-api-key']=apiKey4;
+          var fr4;try{fr4=await env.RL.fetch(new Request(API+'/v1/hwp/'+name.slice(7),{method:'POST',headers:fh4,body:JSON.stringify({name:args.name||'document.hwp',base64:b64h})}));}catch(e){fr4=null;}
+          if(!fr4){result={error:'Conversion failed. Please retry.'};}
+          else{if(!apiKey4&&(fr4.status===401||fr4.status===429))return unauthorized(fr4.status===401?'This tool needs an account. Sign in to continue.':'Anonymous daily limit reached. Sign in for your own quota.');var t4=await fr4.text();try{result=JSON.parse(t4);}catch(e){result={error:'HTTP '+fr4.status};}if(fr4.status>=400&&result&&!result.error)result={error:(result.detail||result.title||('HTTP '+fr4.status)),details:result};var __egress='none';}}
+      }
       else if(name==='list_categories'){
         result={categories:CATEGORIES,totalTools:CATALOG.length};
       }
       else{
-        result={error:'Unknown tool. Available: search_tools, run_tool, run_flow, list_categories.'};
+        result={error:'Unknown tool. Available: search_tools, run_tool, run_flow, hwp_to_markdown, hwp_to_text, hwp_to_docx, list_categories.'};
       }
       
       var __res={content:[{type:'text',text:JSON.stringify(result)}],isError:!!result.error};if(typeof __egress!=='undefined')__res._meta={'com.toolsthatdontupload/egress':__egress,'com.toolsthatdontupload/stored':false};
