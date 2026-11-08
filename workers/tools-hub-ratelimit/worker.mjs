@@ -24,7 +24,8 @@ const NET_MAP={"/api/web-fetch":"B13","/api/url-info":"B13","/api/dns-lookup":"E
 const AI_MAP={"/api/ai-translate":"AI","/api/ai-summarize":"AI","/api/ai-ocr":"AI"};
 const RENDER_MAP={"/api/html-to-pdf":"RENDER","/api/markdown-to-pdf":"RENDER","/api/pdf-table-extract":"PDFTXT","/api/pdf-text-layout":"PDFTXT"};
 // S-HUB 2026-11-06: saved flows (ttdu.flow/v1) run on the server by Worker ttdu-flows; counted like a file endpoint.
-const FLOW_MAP={"/v1/flows/run":"FLOWS"};
+// S-HUB 2026-11-07: HWP/HWPX conversion (text, markdown, docx; pdf answers 501) also runs on Worker ttdu-flows, counted like a file call.
+const FLOW_MAP={"/v1/flows/run":"FLOWS","/v1/hwp/text":"FLOWS","/v1/hwp/markdown":"FLOWS","/v1/hwp/docx":"FLOWS","/v1/hwp/pdf":"FLOWS"};
 const FILE_EPS=new Set(["/api/pdf-merge","/api/pdf-split","/api/pdf-rotate","/api/pdf-watermark","/api/pdf-metadata","/api/pdf-extract"]);
 // W-HUBFIX 2026-10-14: handled by Worker tools-hub-pdf when the PDF service binding exists, otherwise by the origin.
 const PDF_LOCAL=new Set(["/api/pdf-extract","/api/pdf-split","/api/pdf-metadata"]);
