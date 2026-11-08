@@ -82,6 +82,8 @@ const __inner={async fetch(request,env){
   const isNet=!!NET_MAP[p],isAI=!!AI_MAP[p],isRender=!!RENDER_MAP[p],isFlow=!!FLOW_MAP[p],isFile=FILE_EPS.has(p)||isRender||isFlow;
   if(!isNet&&!isAI&&!isFile)return json({type:'about:blank',title:'Not Found',status:404,detail:'This endpoint is not available. It was withdrawn until it passes accuracy tests. See https://toolsthatdontupload.com/openapi.json for the current list.'},404);
   if(request.method!=='POST'&&request.method!=='GET')return json({title:'Method Not Allowed',status:405},405,{Allow:'GET, POST, OPTIONS'});
+  // S-HUB 2026-11-09: HWP to PDF needs page rendering with fonts (browser only). Answer 501 here, before any quota or credit is used.
+  if(p==='/v1/hwp/pdf')return json({type:'about:blank',title:'Not Implemented',status:501,code:'browser_only',detail:'HWP to PDF needs page rendering with fonts, which runs in the browser only: https://dagotools.com/en/tools/hwp-to-pdf/ . Use /v1/hwp/docx or /v1/hwp/markdown on the server.'},501);
   const contentType=(request.headers.get('content-type')||'').toLowerCase();
   const isMultiAI=isAI&&contentType.includes('multipart/form-data');
   let bodyBytes=null;
