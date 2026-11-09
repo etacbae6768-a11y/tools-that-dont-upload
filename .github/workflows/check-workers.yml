@@ -16,6 +16,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Workers changed by this pull request
+        id: changed
+        if: github.event_name == 'pull_request'
+        run: |
+          names=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- workers | cut -d/ -f2 | sort -u | tr '\n' ' ')
+          echo "Changed workers: $names"
+          echo "names=$names" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -24,4 +33,5 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: bfe736ca1eb7ad4f0556c29358a77eda
           DRY_RUN: '1'
+          CHANGED_WORKERS: ${{ steps.changed.outputs.names }}
         run: node scripts/deploy.mjs

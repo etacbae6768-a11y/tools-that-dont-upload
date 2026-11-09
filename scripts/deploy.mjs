@@ -31,6 +31,9 @@ async function liveBindingNames(name) {
 // DRY_RUN=1: deploy nothing. For every worker, compare the modules in workers/<name>/ byte for byte with the
 // version that is live now, and check compatibility_date and the binding guard. Used by check-workers.yml on pull requests.
 const DRY = process.env.DRY_RUN === '1';
+// On a pull request, workers the PR changes are expected to differ from live: report them as warnings.
+// Any other difference (live drifted from main) still fails. CHANGED_WORKERS = space-separated worker names.
+const CHANGED = new Set(String(process.env.CHANGED_WORKERS || '').split(/\s+/).filter(Boolean));
 async function liveDiff(name, dir, meta) {
   const dep = await (await fetch(`${api}/${name}/deployments`, { headers: auth })).json();
   if (!dep.success) return ['cannot read deployments: ' + JSON.stringify(dep.errors)];
@@ -65,7 +68,8 @@ for (const name of names) {
 
   if (DRY) {
     const diff = await liveDiff(name, dir, meta);
-    if (diff.length) { failed++; console.error(`DIFF ${name}: ${diff.join('; ')}`); } else console.log(`same as live: ${name}`);
+    if (diff.length && CHANGED.has(name)) console.log(`::warning title=${name} differs from live (changed in this PR)::${diff.join('; ')}`);
+    else if (diff.length) { failed++; console.error(`DIFF ${name}: ${diff.join('; ')}`); } else console.log(`same as live: ${name}`);
     continue;
   }
 
