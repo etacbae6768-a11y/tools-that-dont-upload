@@ -25,8 +25,8 @@ const META_TOOLS=[
   {
     name:'run_flow',
     title:'Run a saved flow',annotations:{title:'Run a saved flow',readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false},
-    description:'Run a saved flow (ttdu.flow/v1, exported from workflows.toolsthatdontupload.com) on files sent as base64. The files are processed on our server for this request and not stored. Same step rules and tool code as the workflows page. Counts as one file call. Steps that need a browser (for example image.batch) return 422. Limits: 20 files, 10 MB through MCP.',
-    inputSchema:{type:'object',properties:{flow:{type:'object',description:'The flow JSON: {"schema":"ttdu.flow/v1","steps":[{"tool":"pdf.merge","scope":"all","options":{}}]}'},files:{type:'array',description:'Input files in order',items:{type:'object',properties:{name:{type:'string'},base64:{type:'string'}},required:['name','base64']}}},required:['flow','files']}
+    description:'Run a saved flow (ttdu.flow/v1, exported from workflows.toolsthatdontupload.com) on files sent as base64. The files are processed on our server for this request and not stored. Same step rules and tool code as the workflows page. Counts as one file call. Steps that need a browser (for example image.batch) return 422. Pass vars for flows that declare them. Limits: 20 files, 10 MB through MCP.',
+    inputSchema:{type:'object',properties:{flow:{type:'object',description:'The flow JSON: {"schema":"ttdu.flow/v1","steps":[{"tool":"pdf.merge","scope":"all","options":{}}]}'},files:{type:'array',description:'Input files in order',items:{type:'object',properties:{name:{type:'string'},base64:{type:'string'}},required:['name','base64']}},vars:{type:'object',description:'Values for the flow\'s declared vars, e.g. {"client":"ACME"} for outName "{client}-merged". A missing declared var returns needs_input.',additionalProperties:{type:'string'}}},required:['flow','files']}
   },
   {
     name:'hwp_to_markdown',
@@ -58,7 +58,7 @@ const CATEGORY_LABELS={"korean":"Korean language & business","ai":"AI (Cloudflar
 const CATEGORIES={};CATALOG.forEach(function(t){var c=CATEGORIES[t.category]||(CATEGORIES[t.category]={label:CATEGORY_LABELS[t.category]||t.category,count:0,examples:[]});c.count++;if(c.examples.length<5)c.examples.push(t.name);});
 
 const SUPPORTED_PROTOCOLS=['2025-06-18','2025-03-26','2024-11-05'];
-const SERVER_INFO={protocolVersion:'2025-06-18',capabilities:{tools:{listChanged:false},resources:{subscribe:false,listChanged:false},prompts:{listChanged:false}},serverInfo:{name:'tools-that-dont-upload',title:"Tools That Don't Upload",version:'1.5.0'},instructions:'search_tools finds catalog tools and returns tested example arguments; run_tool runs one. Network tools require an X-API-Key header (free key: https://toolsthatdontupload.com/api-keys/). REST note: sending input in a GET query string is deprecated (responses carry Deprecation and Sunset headers) and returns 405 from 2026-11-16; MCP calls are not affected.'};
+const SERVER_INFO={protocolVersion:'2025-06-18',capabilities:{tools:{listChanged:false},resources:{subscribe:false,listChanged:false},prompts:{listChanged:false}},serverInfo:{name:'tools-that-dont-upload',title:"Tools That Don't Upload",version:'1.6.0'},instructions:'search_tools finds catalog tools and returns tested example arguments; run_tool runs one. Network tools require an X-API-Key header (free key: https://toolsthatdontupload.com/api-keys/). REST note: sending input in a GET query string is deprecated (responses carry Deprecation and Sunset headers) and returns 405 from 2026-11-16; MCP calls are not affected.'};
 
 const NAME_TO_API={
 hash_text:'/api/hash',generate_uuid:'/api/uuid',base64_encode:'/api/base64',base64_decode:'/api/base64',
@@ -106,7 +106,7 @@ function toolPath(name){return NAME_TO_API[name]||('/api/'+String(name||'').repl
 async function callTool(name,args,ctx){
   const ep=toolPath(name);
   const bind=ROUTE_BIND[ep];
-  const headers={'Content-Type':'application/json','User-Agent':'ttdu-mcp/1.5'};
+  const headers={'Content-Type':'application/json','User-Agent':'ttdu-mcp/1.6'};
   if(bind==='RL'){headers['x-internal-token']=ctx.env.INTERNAL_TOKEN;headers['x-client-ip']=ctx.ip;if(ctx.key)headers['x-api-key']=ctx.key;if(ctx.aiKey)headers['x-ai-key']=ctx.aiKey;}
   const meta=CATALOG_BY_NAME[name]||{};let req;
   if(meta.kind==='file'){
@@ -119,7 +119,7 @@ async function callTool(name,args,ctx){
     if(total===0)return{status:400,data:{error:'Send the PDF as file_base64 (or files_base64: [..] for pdf_merge).'}};
     if(total>10*1024*1024)return{status:413,data:{error:'Files over 10 MB are not accepted through MCP. Use the REST endpoint.'}};
     for(const k in a)fd.append(k,typeof a[k]==='object'?JSON.stringify(a[k]):String(a[k]));
-    const fh={'User-Agent':'ttdu-mcp/1.5','x-internal-token':ctx.env.INTERNAL_TOKEN,'x-client-ip':ctx.ip};if(ctx.key)fh['x-api-key']=ctx.key;
+    const fh={'User-Agent':'ttdu-mcp/1.6','x-internal-token':ctx.env.INTERNAL_TOKEN,'x-client-ip':ctx.ip};if(ctx.key)fh['x-api-key']=ctx.key;
     let fr;try{fr=await ctx.env.RL.fetch(new Request(API+ep,{method:'POST',headers:fh,body:fd}));}catch(e){return{status:502,data:{error:'Tool call failed. Please retry.'}};}
     const fct=fr.headers.get('content-type')||'';
     if(fr.ok&&!fct.includes('json')){const buf=new Uint8Array(await fr.arrayBuffer());if(buf.length>10*1024*1024)return{status:413,data:{error:'Result over 10 MB; use the REST endpoint.'}};let s='';for(let i=0;i<buf.length;i+=32768)s+=String.fromCharCode.apply(null,buf.subarray(i,i+32768));return{status:200,data:{file_base64:btoa(s),contentType:fct,size:buf.length},egress:fr.headers.get('X-Egress')||'none'};}
@@ -218,7 +218,7 @@ const __inner={async fetch(request,env){
   if(request.method==='DELETE'||request.method==='PUT'||request.method==='PATCH')return new Response(null,{status:405,headers:{Allow:'GET, POST, OPTIONS',...CORS}});
   if(request.method==='GET'&&(request.headers.get('accept')||'').includes('text/event-stream'))return new Response(null,{status:405,headers:{Allow:'POST, OPTIONS',...CORS}});
   if(request.method==='GET'){
-    return new Response(JSON.stringify({name:'tools-that-dont-upload',version:'1.5.0',transport:'streamable-http (POST JSON-RPC)',mcp_tools:META_TOOLS.length,catalog_tools:CATALOG.length,build:{deployed_via:env.BUILD_COMMIT?'github-actions':'manual (not attested)',commit:env.BUILD_COMMIT||null,run:env.BUILD_RUN||null,bundle_sha256:env.BUILD_BUNDLE_SHA256||null,source:'https://github.com/etacbae6768-a11y/tools-that-dont-upload/tree/main/workers'}}),{headers:{'Content-Type':'application/json',...CORS}});
+    return new Response(JSON.stringify({name:'tools-that-dont-upload',version:'1.6.0',transport:'streamable-http (POST JSON-RPC)',mcp_tools:META_TOOLS.length,catalog_tools:CATALOG.length,build:{deployed_via:env.BUILD_COMMIT?'github-actions':'manual (not attested)',commit:env.BUILD_COMMIT||null,run:env.BUILD_RUN||null,bundle_sha256:env.BUILD_BUNDLE_SHA256||null,source:'https://github.com/etacbae6768-a11y/tools-that-dont-upload/tree/main/workers'}}),{headers:{'Content-Type':'application/json',...CORS}});
   }
   try{
     const limited=await readBodyCapped(request,16*1024*1024);
@@ -265,8 +265,8 @@ const __inner={async fetch(request,env){
         var fl=Array.isArray(args.files)?args.files:[];var tot=0;fl.forEach(function(f){tot+=Math.floor(String((f&&f.base64)||'').length*3/4);});
         if(!args.flow||!fl.length){result={error:'Send flow (ttdu.flow/v1) and files: [{name, base64}].'};}
         else if(tot>10*1024*1024){result={error:'Files over 10 MB are not accepted through MCP. Use POST /v1/flows/run.'};}
-        else{var fh3={'Content-Type':'application/json','User-Agent':'ttdu-mcp/1.5','x-internal-token':env.INTERNAL_TOKEN,'x-client-ip':request.headers.get('cf-connecting-ip')||'unknown'};if(apiKey3)fh3['x-api-key']=apiKey3;
-          var fr3;try{fr3=await env.RL.fetch(new Request(API+'/v1/flows/run',{method:'POST',headers:fh3,body:JSON.stringify({flow:args.flow,files:fl})}));}catch(e){fr3=null;}
+        else{var fh3={'Content-Type':'application/json','User-Agent':'ttdu-mcp/1.6','x-internal-token':env.INTERNAL_TOKEN,'x-client-ip':request.headers.get('cf-connecting-ip')||'unknown'};if(apiKey3)fh3['x-api-key']=apiKey3;
+          var fr3;try{fr3=await env.RL.fetch(new Request(API+'/v1/flows/run',{method:'POST',headers:fh3,body:JSON.stringify(args.vars&&typeof args.vars==='object'&&!Array.isArray(args.vars)?{flow:args.flow,files:fl,vars:args.vars}:{flow:args.flow,files:fl})}));}catch(e){fr3=null;}
           if(!fr3){result={error:'Flow run failed. Please retry.'};}
           else{if(!apiKey3&&(fr3.status===401||fr3.status===429))return unauthorized(fr3.status===401?'This tool needs an account. Sign in to continue.':'Anonymous daily limit reached. Sign in for your own quota.');var t3=await fr3.text();try{result=JSON.parse(t3);}catch(e){result={error:'HTTP '+fr3.status};}if(fr3.status>=400&&result&&!result.error)result={error:(result.detail||result.title||('HTTP '+fr3.status)),details:result};var __egress='none';}}
       }
@@ -275,7 +275,7 @@ const __inner={async fetch(request,env){
         var b64h=String(args.base64||'');
         if(!b64h){result={error:'Send base64 (the HWP or HWPX file).'};}
         else if(Math.floor(b64h.length*3/4)>10*1024*1024){result={error:'Files over 10 MB are not accepted through MCP. Use POST /v1/hwp/'+name.slice(7)+'.'};}
-        else{var fh4={'Content-Type':'application/json','User-Agent':'ttdu-mcp/1.5','x-internal-token':env.INTERNAL_TOKEN,'x-client-ip':request.headers.get('cf-connecting-ip')||'unknown'};if(apiKey4)fh4['x-api-key']=apiKey4;
+        else{var fh4={'Content-Type':'application/json','User-Agent':'ttdu-mcp/1.6','x-internal-token':env.INTERNAL_TOKEN,'x-client-ip':request.headers.get('cf-connecting-ip')||'unknown'};if(apiKey4)fh4['x-api-key']=apiKey4;
           var fr4;try{fr4=await env.RL.fetch(new Request(API+'/v1/hwp/'+name.slice(7),{method:'POST',headers:fh4,body:JSON.stringify({name:args.name||'document.hwp',base64:b64h})}));}catch(e){fr4=null;}
           if(!fr4){result={error:'Conversion failed. Please retry.'};}
           else{if(!apiKey4&&(fr4.status===401||fr4.status===429))return unauthorized(fr4.status===401?'This tool needs an account. Sign in to continue.':'Anonymous daily limit reached. Sign in for your own quota.');var t4=await fr4.text();try{result=JSON.parse(t4);}catch(e){result={error:'HTTP '+fr4.status};}if(fr4.status>=400&&result&&!result.error)result={error:(result.detail||result.title||('HTTP '+fr4.status)),details:result};var __egress='none';}}

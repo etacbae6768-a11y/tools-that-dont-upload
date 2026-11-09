@@ -4,8 +4,9 @@
 
 MCP server and REST API for data, text, code, PDF and web tasks. Requests are processed in memory and not stored.
 
-- MCP endpoint (Streamable HTTP): https://toolsthatdontupload.com/mcp (v1.5.0)
-- MCP tools: `search_tools`, `run_tool`, `list_categories` (they search and run the REST catalog)
+- MCP endpoint (Streamable HTTP): https://toolsthatdontupload.com/mcp (v1.6.0)
+- MCP tools: `search_tools`, `run_tool`, `list_categories` (search and run the REST catalog), `run_flow` (run a saved file flow, with `vars`), `hwp_to_markdown`, `hwp_to_text`, `hwp_to_docx` (Korean HWP/HWPX documents)
+- Client setup (Claude Desktop, Claude Code, Cursor, VS Code, Windsurf): https://toolsthatdontupload.com/docs/mcp/
 - REST API: https://toolsthatdontupload.com/openapi.json (every endpoint, generated; every documented example is tested)
 - Network tools (fetch URL, DNS, WHOIS, SSL) need an `X-API-Key` header. Free key: https://toolsthatdontupload.com/api-keys/
 
