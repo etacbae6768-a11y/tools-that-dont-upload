@@ -2,7 +2,7 @@
 
 [![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/etacbae6768-a11y/tools-that-dont-upload)
 
-MCP server and REST API for data, text, code, PDF and web tasks. Requests are processed in memory and not stored.
+MCP server and REST API for data, text, code, PDF and web tasks. Requests, including any file you send to a tool, go to our server (Cloudflare Workers), are processed in memory and are not stored. For tools that run entirely on your computer, use the local server in `plugin/` (no network requests).
 
 - MCP endpoint (Streamable HTTP): https://toolsthatdontupload.com/mcp (v1.6.0)
 - MCP tools: `search_tools`, `run_tool`, `list_categories` (search and run the REST catalog), `run_flow` (run a saved file flow, with `vars`), `hwp_to_markdown`, `hwp_to_text`, `hwp_to_docx` (Korean HWP/HWPX documents)
@@ -32,13 +32,15 @@ Cursor / other clients:
 ```
 
 ## Limits
-- Anonymous: compute tools under fair use; file 20 calls/day; AI 10 calls/day per IP.
-- Free key: 1,000 credits/month. Paid plans: coming soon.
+- Anonymous: compute tools under fair use (rate limited); file tools 20 calls/day and AI tools 10 calls/day per IP, reset at 00:00 UTC; network tools need a key.
+- Free key: 1,000 credits/month, plus a daily allowance of 20 file and 10 AI calls per key.
+- Files through MCP: up to 10 MB. Tool results: up to 2 MiB.
+- Paid plans are listed at https://toolsthatdontupload.com/pricing/ ; checkout is not open yet.
 
 ## Privacy
 Yellow = edge memory only. Orange = our edge fetches the URL you give. Blue = Cloudflare Workers AI. Details: https://toolsthatdontupload.com/privacy/
 
-Note: this repository is a documentation snapshot, not the full deployed source.
+Note: this repository has the source of the MCP server and gateway Workers. The static site and the other tool Workers are deployed separately (see Development notes).
 
 Listed in the [Claude Market MCP directory](https://www.claudemarket.ai/mcp)
 
